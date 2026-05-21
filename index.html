@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v10</title>
+  <title>메이플스토리 장부 앱 v14</title>
   <style>
     :root {
       --bg: #020617;
@@ -323,7 +323,7 @@
 
     .record {
       display: grid;
-      grid-template-columns: 86px 82px minmax(0, 1fr) 110px 32px;
+      grid-template-columns: 104px 82px minmax(0, 1fr) 110px 32px;
       gap: 8px;
       align-items: center;
       padding: 12px 14px;
@@ -331,6 +331,16 @@
     }
 
     .record:last-child { border-bottom: 0; }
+
+    .record.pending {
+      opacity: .72;
+    }
+
+    .record.pending .record-comment::after {
+      content: " · 저장 중";
+      color: var(--gold);
+      font-weight: 800;
+    }
 
     .time {
       color: var(--muted);
@@ -612,6 +622,29 @@
       color: var(--gold);
     }
 
+    .share-box {
+      margin-top: 14px;
+      border: 1px solid #334155;
+      background: #020617;
+      border-radius: 16px;
+      padding: 12px;
+    }
+
+    .share-box-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      margin-bottom: 8px;
+    }
+
+    .share-text {
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.45;
+      word-break: keep-all;
+      white-space: pre-wrap;
+    }
+
     @media (max-width: 760px) {
       .grid3 {
         grid-template-columns: minmax(0, .9fr) minmax(0, .9fr) minmax(0, 1.25fr);
@@ -660,7 +693,7 @@
       }
 
       .record {
-        grid-template-columns: 68px 74px minmax(0, 1fr) 88px 26px;
+        grid-template-columns: 82px 62px minmax(0, 1fr) 82px 24px;
         gap: 5px;
         padding: 10px 10px;
       }
@@ -671,9 +704,12 @@
       }
 
       .record-category,
-      .record-comment,
-      .time {
+      .record-comment {
         font-size: 12px;
+      }
+
+      .time {
+        font-size: 10.5px;
       }
 
       .record-amount {
@@ -754,7 +790,7 @@
       }
 
       .record {
-        grid-template-columns: 58px 60px minmax(0, 1fr) 74px 22px;
+        grid-template-columns: 76px 52px minmax(0, 1fr) 68px 20px;
         gap: 4px;
       }
 
@@ -784,7 +820,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v10</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v14</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -872,19 +908,27 @@
           </div>
 
           <div class="calc-panel active" id="mesoToCashPanel">
-            <div class="field" style="margin-top:0">
+            <div class="purchase-result" style="margin-top:0">
+              <div class="small">총 이체 예상 금액</div>
+              <div class="big" id="totalCashResult">0원</div>
+            </div>
+
+            <div class="share-box">
+              <div class="share-box-label">상대방 공유용 문구</div>
+              <div class="share-text" id="purchaseShareText">억당 금액과 구매 메소를 입력하면 공유 문구가 생성됩니다.</div>
+              <div class="copy-row">
+                <button class="secondary-button" id="copyPurchaseTextButton" type="button">공유 문구 복사</button>
+              </div>
+            </div>
+
+            <div class="field" style="margin-top:14px">
               <label>현재 메소 1억당 현금</label>
               <input id="cashPerEokInput" type="number" min="0" step="1" placeholder="예: 1600" />
             </div>
 
             <div class="field" style="margin-top:14px">
               <label>구매하려는 메소 / 억 단위</label>
-              <input id="mesoAmountInput" type="number" min="0" step="0.01" placeholder="예: 100" />
-            </div>
-
-            <div class="purchase-result" style="margin-top:18px">
-              <div class="small">총 이체 예상 금액</div>
-              <div class="big" id="totalCashResult">0원</div>
+              <input id="mesoAmountInput" type="number" min="0" step="0.01" placeholder="예: 250" />
             </div>
           </div>
 
@@ -907,6 +951,14 @@
               <div class="mini-result">
                 <div class="small">실제 사용 현금</div>
                 <div class="value" id="usedCashResult">0원</div>
+              </div>
+            </div>
+
+            <div class="share-box">
+              <div class="share-box-label">상대방 공유용 문구</div>
+              <div class="share-text" id="reversePurchaseShareText">보유 현금과 억당 금액을 입력하면 공유 문구가 생성됩니다.</div>
+              <div class="copy-row">
+                <button class="secondary-button" id="copyReversePurchaseTextButton" type="button">공유 문구 복사</button>
               </div>
             </div>
 
@@ -993,6 +1045,8 @@
     let currentPurchaseMode = "mesoToCash";
     let isLoading = false;
 
+    const CACHE_KEY = "maple-ledger-cache-v11";
+
     const $ = (id) => document.getElementById(id);
 
     const today = new Date();
@@ -1053,12 +1107,14 @@
     function formatDateTime(value) {
       const d = normalizeDate(value);
       if (Number.isNaN(d.getTime())) return String(value || "");
-      return new Intl.DateTimeFormat("ko-KR", {
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit"
-      }).format(d);
+
+      const year = String(d.getFullYear()).slice(2);
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      const hour = String(d.getHours()).padStart(2, "0");
+      const minute = String(d.getMinutes()).padStart(2, "0");
+
+      return `${year}.${month}.${day} ${hour}:${minute}`;
     }
 
     function dateString(value) {
@@ -1112,7 +1168,7 @@
       list.innerHTML = filtered.map(r => {
         const isIncome = r.type === "income";
         return `
-          <div class="record">
+          <div class="record ${r.pending ? "pending" : ""}">
             <div class="time">${formatDateTime(r.created_at)}</div>
             <div><span class="badge ${isIncome ? "income" : "expense"}">${typeIcon(r.type)}${isIncome ? "+ 수입" : "- 지출"}</span></div>
             <div class="record-main">
@@ -1151,7 +1207,7 @@
       }
 
       list.innerHTML = sorted.map(item => `
-        <div class="record">
+        <div class="record ${item.pending ? "pending" : ""}">
           <div class="time">${formatDateTime(item.created_at)}</div>
           <div><span class="badge income">${typeIcon("income")}구매</span></div>
           <div class="record-main">
@@ -1167,8 +1223,33 @@
     function calculatePurchase() {
       const cashPerEok = Number($("cashPerEokInput").value);
       const mesoAmount = Number($("mesoAmountInput").value);
-      $("totalCashResult").textContent = formatWon(cashPerEok * mesoAmount);
+      const totalCash = cashPerEok * mesoAmount;
+
+      $("totalCashResult").textContent = formatWon(totalCash);
+      updatePurchaseShareText(cashPerEok, mesoAmount, totalCash);
       calculateReversePurchase();
+    }
+
+    function formatNumberCompact(value) {
+      const number = Number(value || 0);
+      return Number.isInteger(number)
+        ? number.toLocaleString("ko-KR")
+        : number.toLocaleString("ko-KR", { maximumFractionDigits: 2 });
+    }
+
+    function updatePurchaseShareText(cashPerEok, mesoAmount, totalCash) {
+      const target = $("purchaseShareText");
+
+      if (!cashPerEok || !mesoAmount || !totalCash) {
+        target.textContent = "억당 금액과 구매 메소를 입력하면 공유 문구가 생성됩니다.";
+        return;
+      }
+
+      const mesoText = formatNumberCompact(mesoAmount);
+      const cashText = Number(cashPerEok).toLocaleString("ko-KR");
+      const totalText = Math.round(totalCash).toLocaleString("ko-KR");
+
+      target.textContent = `김하람 이름으로 ${mesoText} * ${cashText} = ${totalText} 원 입금 드렸습니다.`;
     }
 
     function calculateReversePurchase() {
@@ -1178,12 +1259,31 @@
       if (!budget || !cashPerEok) {
         $("buyableMesoResult").textContent = "0억";
         $("usedCashResult").textContent = "0원";
+        updateReversePurchaseShareText(0, 0, 0);
         return;
       }
 
-      const buyableMeso = budget / cashPerEok;
-      $("buyableMesoResult").textContent = formatEokPrecise(buyableMeso);
-      $("usedCashResult").textContent = formatWon(budget);
+      const buyableMeso = Math.floor(budget / cashPerEok);
+      const usedCash = buyableMeso * cashPerEok;
+
+      $("buyableMesoResult").textContent = formatEok(buyableMeso);
+      $("usedCashResult").textContent = formatWon(usedCash);
+      updateReversePurchaseShareText(cashPerEok, buyableMeso, usedCash);
+    }
+
+    function updateReversePurchaseShareText(cashPerEok, mesoAmount, totalCash) {
+      const target = $("reversePurchaseShareText");
+
+      if (!cashPerEok || !mesoAmount || !totalCash) {
+        target.textContent = "보유 현금과 억당 금액을 입력하면 공유 문구가 생성됩니다.";
+        return;
+      }
+
+      const mesoText = formatNumberCompact(mesoAmount);
+      const cashText = Number(cashPerEok).toLocaleString("ko-KR");
+      const totalText = Math.round(totalCash).toLocaleString("ko-KR");
+
+      target.textContent = `김하람 이름으로 ${mesoText} * ${cashText} = ${totalText} 원 입금 드렸습니다.`;
     }
 
     function setPurchaseMode(mode) {
@@ -1202,9 +1302,11 @@
 
       if (!budget || !cashPerEok) return;
 
-      const buyableMeso = budget / cashPerEok;
+      const buyableMeso = Math.floor(budget / cashPerEok);
+      if (!buyableMeso) return;
+
       $("cashPerEokInput").value = cashPerEok;
-      $("mesoAmountInput").value = Number(buyableMeso.toFixed(2));
+      $("mesoAmountInput").value = buyableMeso;
       calculatePurchase();
       setPurchaseMode("mesoToCash");
     }
@@ -1241,30 +1343,69 @@
       calculatePurchase();
     }
 
-    async function loadData() {
+    function saveCache() {
       try {
-        setLoading(true);
-        setStatus("구글 시트에서 데이터를 불러오는 중...");
+        localStorage.setItem(CACHE_KEY, JSON.stringify({
+          records,
+          categories,
+          mesoPurchases,
+          savedAt: new Date().toISOString(),
+        }));
+      } catch (error) {
+        console.warn("캐시 저장 실패", error);
+      }
+    }
 
-        const [recordResult, categoryResult, purchaseResult] = await Promise.all([
-          apiGet({ action: "listRecords" }),
-          apiGet({ action: "listCategories" }),
-          apiGet({ action: "listMesoPurchases" }).catch(() => ({ ok: true, mesoPurchases: [] }))
-        ]);
+    function loadCache() {
+      try {
+        const raw = localStorage.getItem(CACHE_KEY);
+        if (!raw) return false;
 
-        if (recordResult.ok) records = recordResult.records || [];
-        if (categoryResult.ok && categoryResult.categories) categories = categoryResult.categories;
-        if (purchaseResult.ok) mesoPurchases = purchaseResult.mesoPurchases || [];
+        const cache = JSON.parse(raw);
+        records = cache.records || [];
+        categories = cache.categories || DEFAULT_CATEGORIES;
+        mesoPurchases = cache.mesoPurchases || [];
 
         renderAll();
+
+        const savedAt = cache.savedAt ? formatDateTime(cache.savedAt) : "";
+        setStatus(savedAt ? `캐시 표시 중 · 마지막 동기화 ${savedAt}` : "캐시 표시 중");
+        return true;
+      } catch (error) {
+        console.warn("캐시 불러오기 실패", error);
+        return false;
+      }
+    }
+
+    async function loadData({ silent = false } = {}) {
+      try {
+        if (!silent) {
+          setLoading(true);
+          setStatus("구글 시트와 동기화 중...");
+        }
+
+        const result = await apiGet({ action: "loadAll" });
+
+        if (!result.ok) throw new Error(result.message || "loadAll 실패");
+
+        records = result.records || [];
+        categories = result.categories || DEFAULT_CATEGORIES;
+        mesoPurchases = result.mesoPurchases || [];
+
+        renderAll();
+        saveCache();
         setStatus(`구글 시트 연결 완료 · 장부 ${records.length}건 · 메소구매 ${mesoPurchases.length}건`, "ok");
       } catch (error) {
         console.error(error);
-        setStatus("구글 시트 연결 실패: Apps Script 배포 권한 또는 URL을 확인해주세요.", "error");
+        setStatus("구글 시트 연결 실패: 캐시 데이터로 표시 중입니다.", "error");
         renderAll();
       } finally {
         setLoading(false);
       }
+    }
+
+    function makeTempId(prefix) {
+      return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     }
 
     async function addRecord() {
@@ -1274,13 +1415,28 @@
 
       if (!amount || amount <= 0 || !category) return;
 
-      try {
-        setLoading(true);
-        setStatus("장부 기록을 구글 시트에 저장하는 중...");
+      const tempId = makeTempId("temp-record");
+      const tempRecord = {
+        id: tempId,
+        created_at: new Date().toISOString(),
+        type: currentType,
+        amount,
+        category,
+        comment,
+        pending: true,
+      };
 
+      records = [tempRecord, ...records];
+      $("amountInput").value = "";
+      $("commentInput").value = "";
+      renderAll();
+      saveCache();
+      setStatus("장부 기록을 화면에 먼저 반영했습니다. 구글 시트 저장 중...");
+
+      try {
         const result = await apiGet({
           action: "addRecord",
-          type: currentType,
+          type: tempRecord.type,
           amount,
           category,
           comment
@@ -1288,31 +1444,42 @@
 
         if (!result.ok) throw new Error(result.message || "저장 실패");
 
-        $("amountInput").value = "";
-        $("commentInput").value = "";
-        await loadData();
+        const savedRecord = result.record || {
+          ...tempRecord,
+          id: result.id || tempId,
+          pending: false,
+        };
+
+        records = records.map(record => record.id === tempId ? { ...savedRecord, pending: false } : record);
+        renderAll();
+        saveCache();
         setStatus("장부 기록 저장 완료", "ok");
       } catch (error) {
         console.error(error);
-        setStatus("장부 기록 저장 실패", "error");
-      } finally {
-        setLoading(false);
+        records = records.filter(record => record.id !== tempId);
+        renderAll();
+        saveCache();
+        setStatus("장부 기록 저장 실패: 입력값을 되돌렸습니다.", "error");
       }
     }
 
     window.deleteRecord = async function(id) {
+      const previousRecords = [...records];
+      records = records.filter(record => record.id !== id);
+      renderAll();
+      saveCache();
+      setStatus("장부 기록을 화면에서 먼저 삭제했습니다. 구글 시트 반영 중...");
+
       try {
-        setLoading(true);
-        setStatus("장부 기록을 삭제하는 중...");
         const result = await apiGet({ action: "deleteRecord", id });
         if (!result.ok) throw new Error(result.message || "삭제 실패");
-        await loadData();
         setStatus("장부 기록 삭제 완료", "ok");
       } catch (error) {
         console.error(error);
-        setStatus("장부 기록 삭제 실패", "error");
-      } finally {
-        setLoading(false);
+        records = previousRecords;
+        renderAll();
+        saveCache();
+        setStatus("장부 기록 삭제 실패: 삭제를 되돌렸습니다.", "error");
       }
     }
 
@@ -1326,10 +1493,25 @@
 
       if (!cashPerEok || !mesoAmount || !totalCash) return;
 
-      try {
-        setLoading(true);
-        setStatus("메소 구매 기록을 구글 시트에 저장하는 중...");
+      const tempId = makeTempId("temp-purchase");
+      const tempPurchase = {
+        id: tempId,
+        created_at: new Date().toISOString(),
+        cash_per_eok: cashPerEok,
+        meso_amount: mesoAmount,
+        total_cash: totalCash,
+        raw_account_text: rawAccountText,
+        account_only: accountOnly,
+        memo,
+        pending: true,
+      };
 
+      mesoPurchases = [tempPurchase, ...mesoPurchases];
+      renderAll();
+      saveCache();
+      setStatus("메소 구매 기록을 화면에 먼저 반영했습니다. 구글 시트 저장 중...");
+
+      try {
         const result = await apiGet({
           action: "addMesoPurchase",
           cash_per_eok: cashPerEok,
@@ -1342,29 +1524,42 @@
 
         if (!result.ok) throw new Error(result.message || "저장 실패");
 
-        await loadData();
+        const savedPurchase = result.mesoPurchase || {
+          ...tempPurchase,
+          id: result.id || tempId,
+          pending: false,
+        };
+
+        mesoPurchases = mesoPurchases.map(item => item.id === tempId ? { ...savedPurchase, pending: false } : item);
+        renderAll();
+        saveCache();
         setStatus("메소 구매 기록 저장 완료", "ok");
       } catch (error) {
         console.error(error);
-        setStatus("메소 구매 기록 저장 실패", "error");
-      } finally {
-        setLoading(false);
+        mesoPurchases = mesoPurchases.filter(item => item.id !== tempId);
+        renderAll();
+        saveCache();
+        setStatus("메소 구매 기록 저장 실패: 입력값을 되돌렸습니다.", "error");
       }
     }
 
     window.deleteMesoPurchase = async function(id) {
+      const previousPurchases = [...mesoPurchases];
+      mesoPurchases = mesoPurchases.filter(item => item.id !== id);
+      renderAll();
+      saveCache();
+      setStatus("메소 구매 기록을 화면에서 먼저 삭제했습니다. 구글 시트 반영 중...");
+
       try {
-        setLoading(true);
-        setStatus("메소 구매 기록을 삭제하는 중...");
         const result = await apiGet({ action: "deleteMesoPurchase", id });
         if (!result.ok) throw new Error(result.message || "삭제 실패");
-        await loadData();
         setStatus("메소 구매 기록 삭제 완료", "ok");
       } catch (error) {
         console.error(error);
-        setStatus("메소 구매 기록 삭제 실패", "error");
-      } finally {
-        setLoading(false);
+        mesoPurchases = previousPurchases;
+        renderAll();
+        saveCache();
+        setStatus("메소 구매 기록 삭제 실패: 삭제를 되돌렸습니다.", "error");
       }
     }
 
@@ -1377,15 +1572,18 @@
         setStatus("이미 있는 카테고리입니다.", "error");
         return;
       }
-      if ((categories[type] || []).length >= MAX_CATEGORIES) {
-        setStatus("카테고리는 구글 시트와 앱에서 자유롭게 관리할 수 있습니다.", "error");
-        return;
-      }
+
+      const previousCategories = JSON.parse(JSON.stringify(categories));
+      categories = {
+        ...categories,
+        [type]: [...(categories[type] || []), name],
+      };
+      input.value = "";
+      renderAll();
+      saveCache();
+      setStatus("카테고리를 화면에 먼저 반영했습니다. 구글 시트 저장 중...");
 
       try {
-        setLoading(true);
-        setStatus("카테고리를 구글 시트에 추가하는 중...");
-
         const result = await apiGet({
           action: "addCategory",
           type,
@@ -1393,15 +1591,13 @@
         });
 
         if (!result.ok) throw new Error(result.message || "카테고리 추가 실패");
-
-        input.value = "";
-        await loadData();
         setStatus("카테고리 추가 완료", "ok");
       } catch (error) {
         console.error(error);
-        setStatus("카테고리 추가 실패: Apps Script 최신 코드가 반영됐는지 확인해주세요.", "error");
-      } finally {
-        setLoading(false);
+        categories = previousCategories;
+        renderAll();
+        saveCache();
+        setStatus("카테고리 추가 실패: 추가를 되돌렸습니다.", "error");
       }
     }
 
@@ -1411,10 +1607,16 @@
         return;
       }
 
-      try {
-        setLoading(true);
-        setStatus("카테고리를 구글 시트에서 삭제하는 중...");
+      const previousCategories = JSON.parse(JSON.stringify(categories));
+      categories = {
+        ...categories,
+        [type]: (categories[type] || []).filter(category => category !== name),
+      };
+      renderAll();
+      saveCache();
+      setStatus("카테고리를 화면에서 먼저 삭제했습니다. 구글 시트 반영 중...");
 
+      try {
         const result = await apiGet({
           action: "deleteCategory",
           type,
@@ -1422,14 +1624,13 @@
         });
 
         if (!result.ok) throw new Error(result.message || "카테고리 삭제 실패");
-
-        await loadData();
         setStatus("카테고리 삭제 완료", "ok");
       } catch (error) {
         console.error(error);
-        setStatus("카테고리 삭제 실패: Apps Script 최신 코드가 반영됐는지 확인해주세요.", "error");
-      } finally {
-        setLoading(false);
+        categories = previousCategories;
+        renderAll();
+        saveCache();
+        setStatus("카테고리 삭제 실패: 삭제를 되돌렸습니다.", "error");
       }
     }
 
@@ -1480,6 +1681,42 @@
       }
     });
 
+    $("copyPurchaseTextButton").addEventListener("click", async () => {
+      const value = $("purchaseShareText").textContent;
+      if (!value || value.includes("입력하면")) return;
+
+      try {
+        await navigator.clipboard.writeText(value);
+        $("copyNotice").textContent = "공유 문구가 복사되었습니다.";
+      } catch {
+        const temp = document.createElement("textarea");
+        temp.value = value;
+        document.body.appendChild(temp);
+        temp.select();
+        document.execCommand("copy");
+        document.body.removeChild(temp);
+        $("copyNotice").textContent = "공유 문구가 복사되었습니다.";
+      }
+    });
+
+    $("copyReversePurchaseTextButton").addEventListener("click", async () => {
+      const value = $("reversePurchaseShareText").textContent;
+      if (!value || value.includes("입력하면")) return;
+
+      try {
+        await navigator.clipboard.writeText(value);
+        $("copyNotice").textContent = "공유 문구가 복사되었습니다.";
+      } catch {
+        const temp = document.createElement("textarea");
+        temp.value = value;
+        document.body.appendChild(temp);
+        temp.select();
+        document.execCommand("copy");
+        document.body.removeChild(temp);
+        $("copyNotice").textContent = "공유 문구가 복사되었습니다.";
+      }
+    });
+
     $("clearPurchaseButton").addEventListener("click", () => {
       $("cashPerEokInput").value = "";
       $("mesoAmountInput").value = "";
@@ -1489,6 +1726,8 @@
       $("accountOnlyOutput").value = "";
       $("purchaseMemoInput").value = "";
       $("totalCashResult").textContent = "0원";
+      $("purchaseShareText").textContent = "억당 금액과 구매 메소를 입력하면 공유 문구가 생성됩니다.";
+      $("reversePurchaseShareText").textContent = "보유 현금과 억당 금액을 입력하면 공유 문구가 생성됩니다.";
       $("buyableMesoResult").textContent = "0억";
       $("usedCashResult").textContent = "0원";
       $("copyNotice").textContent = "";
@@ -1507,8 +1746,9 @@
       });
     });
 
-    renderAll();
-    loadData();
+    const hasCache = loadCache();
+    if (!hasCache) renderAll();
+    loadData({ silent: hasCache });
   </script>
 </body>
 </html>
