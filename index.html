@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v14</title>
+  <title>메이플스토리 장부 앱 v15</title>
   <style>
     :root {
       --bg: #020617;
@@ -105,7 +105,7 @@
 
     .tabs {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 6px;
       background: rgba(15, 23, 42, .92);
       padding: 6px;
@@ -645,13 +645,104 @@
       white-space: pre-wrap;
     }
 
+    .settlement-controls {
+      display: grid;
+      grid-template-columns: minmax(160px, 220px) 1fr;
+      gap: 12px;
+      align-items: end;
+      margin-bottom: 14px;
+    }
+
+    .summary-section {
+      margin-top: 14px;
+    }
+
+    .summary-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .summary-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 17px;
+      font-weight: 900;
+      margin: 0;
+    }
+
+    .summary-total {
+      color: var(--gold);
+      font-size: 18px;
+      font-weight: 950;
+      white-space: nowrap;
+    }
+
+    .summary-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .summary-row {
+      display: grid;
+      grid-template-columns: minmax(80px, 1fr) minmax(90px, auto) 58px;
+      gap: 10px;
+      align-items: center;
+      border: 1px solid var(--line);
+      background: #020617;
+      border-radius: 14px;
+      padding: 10px 12px;
+    }
+
+    .summary-category {
+      font-weight: 900;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .summary-amount {
+      text-align: right;
+      font-weight: 950;
+      white-space: nowrap;
+    }
+
+    .summary-percent {
+      color: var(--muted);
+      text-align: right;
+      font-size: 13px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .summary-bar {
+      grid-column: 1 / -1;
+      height: 6px;
+      border-radius: 999px;
+      background: #1e293b;
+      overflow: hidden;
+    }
+
+    .summary-bar-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: var(--gold);
+      width: 0%;
+    }
+
+    .summary-bar-fill.income { background: var(--orange); }
+    .summary-bar-fill.expense { background: var(--blue); }
+
     @media (max-width: 760px) {
       .grid3 {
         grid-template-columns: minmax(0, .9fr) minmax(0, .9fr) minmax(0, 1.25fr);
         gap: 5px;
       }
 
-      .grid2, .settings-grid {
+      .grid2, .settings-grid, .settlement-controls {
         grid-template-columns: 1fr;
       }
 
@@ -661,8 +752,8 @@
       }
 
       .tab {
-        padding: 10px 4px;
-        font-size: 13px;
+        padding: 10px 3px;
+        font-size: 12px;
       }
 
       .summary-card.compact {
@@ -777,6 +868,17 @@
         grid-template-columns: 1fr;
       }
 
+      .summary-row {
+        grid-template-columns: minmax(70px, 1fr) minmax(74px, auto) 44px;
+        padding: 9px 10px;
+        gap: 8px;
+      }
+
+      .summary-title { font-size: 15px; }
+      .summary-total { font-size: 15px; }
+      .summary-category, .summary-amount { font-size: 13px; }
+      .summary-percent { font-size: 12px; }
+
       .copy-row {
         flex-direction: column;
         align-items: stretch;
@@ -820,7 +922,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v14</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v15</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -838,6 +940,7 @@
     <div class="tabs">
       <button class="tab active" data-tab="ledger">장부 기록</button>
       <button class="tab" data-tab="purchase">메소 구매</button>
+      <button class="tab" data-tab="settlement">결산</button>
       <button class="tab" data-tab="settings">설정</button>
     </div>
 
@@ -1001,6 +1104,42 @@
       </div>
     </main>
 
+    <main id="settlementTab" style="display:none">
+      <section class="card">
+        <h2>결산</h2>
+        <p class="desc">선택한 년월 기준으로 수입/지출 카테고리별 총액과 비중을 확인합니다.</p>
+
+        <div class="settlement-controls">
+          <div class="field">
+            <label>결산 년월</label>
+            <input id="settlementMonthFilter" type="month" />
+          </div>
+          <div class="purchase-result">
+            <div class="small">월 순액</div>
+            <div class="big" id="settlementNetTotal">0억</div>
+          </div>
+        </div>
+
+        <div class="grid2">
+          <section class="summary-section">
+            <div class="summary-title-row">
+              <h3 class="summary-title"><span class="mushroom income"></span>수입 Summary</h3>
+              <div class="summary-total" id="incomeSummaryTotal">+0억</div>
+            </div>
+            <div class="summary-list" id="incomeSummaryList"></div>
+          </section>
+
+          <section class="summary-section">
+            <div class="summary-title-row">
+              <h3 class="summary-title"><span class="mushroom expense"></span>지출 Summary</h3>
+              <div class="summary-total" id="expenseSummaryTotal">-0억</div>
+            </div>
+            <div class="summary-list" id="expenseSummaryList"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+
     <main id="settingsTab" style="display:none">
       <div class="card">
         <h2>카테고리 설정</h2>
@@ -1052,6 +1191,7 @@
     const today = new Date();
     const monthValue = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
     $("monthFilter").value = monthValue;
+    $("settlementMonthFilter").value = monthValue;
 
     function setStatus(message, type = "normal") {
       const el = $("syncStatus");
@@ -1220,6 +1360,70 @@
       `).join("");
     }
 
+    function buildCategorySummary(type, month) {
+      const filtered = records.filter(record => {
+        return record.type === type && dateString(record.created_at).startsWith(month);
+      });
+
+      const total = filtered.reduce((sum, record) => sum + Number(record.amount || 0), 0);
+      const byCategory = {};
+
+      filtered.forEach(record => {
+        const category = record.category || "미분류";
+        byCategory[category] = (byCategory[category] || 0) + Number(record.amount || 0);
+      });
+
+      const items = Object.entries(byCategory)
+        .map(([category, amount]) => ({
+          category,
+          amount,
+          percent: total > 0 ? (amount / total) * 100 : 0,
+        }))
+        .sort((a, b) => b.amount - a.amount);
+
+      return { total, items };
+    }
+
+    function renderSummaryList(containerId, summary, type) {
+      const container = $(containerId);
+
+      if (!summary.items.length) {
+        container.innerHTML = `<div class="empty">해당 월 기록이 없습니다.</div>`;
+        return;
+      }
+
+      container.innerHTML = summary.items.map(item => {
+        const percent = item.percent;
+        const percentText = `${percent.toFixed(1)}%`;
+        const signedAmount = type === "income" ? `+${formatEok(item.amount)}` : `-${formatEok(item.amount)}`;
+
+        return `
+          <div class="summary-row">
+            <div class="summary-category">${escapeHtml(item.category)}</div>
+            <div class="summary-amount ${type === "income" ? "orange" : "blue"}">${signedAmount}</div>
+            <div class="summary-percent">${percentText}</div>
+            <div class="summary-bar">
+              <div class="summary-bar-fill ${type}" style="width:${Math.min(percent, 100)}%"></div>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderSettlement() {
+      const month = $("settlementMonthFilter").value || monthValue;
+      const incomeSummary = buildCategorySummary("income", month);
+      const expenseSummary = buildCategorySummary("expense", month);
+      const net = incomeSummary.total - expenseSummary.total;
+
+      $("incomeSummaryTotal").textContent = `+${formatEok(incomeSummary.total)}`;
+      $("expenseSummaryTotal").textContent = `-${formatEok(expenseSummary.total)}`;
+      $("settlementNetTotal").textContent = formatEok(net);
+
+      renderSummaryList("incomeSummaryList", incomeSummary, "income");
+      renderSummaryList("expenseSummaryList", expenseSummary, "expense");
+    }
+
     function calculatePurchase() {
       const cashPerEok = Number($("cashPerEokInput").value);
       const mesoAmount = Number($("mesoAmountInput").value);
@@ -1340,6 +1544,7 @@
       renderRecords();
       renderSettings();
       renderMesoPurchases();
+      renderSettlement();
       calculatePurchase();
     }
 
@@ -1506,10 +1711,21 @@
         pending: true,
       };
 
+      const tempIncomeRecord = {
+        id: `${tempId}-record`,
+        created_at: tempPurchase.created_at,
+        type: "income",
+        amount: mesoAmount,
+        category: "메소 구매",
+        comment: `1억당 ${cashPerEok.toLocaleString("ko-KR")}원 / 총 ${Math.round(totalCash).toLocaleString("ko-KR")}원${memo ? " / " + memo : ""}`,
+        pending: true,
+      };
+
       mesoPurchases = [tempPurchase, ...mesoPurchases];
+      records = [tempIncomeRecord, ...records];
       renderAll();
       saveCache();
-      setStatus("메소 구매 기록을 화면에 먼저 반영했습니다. 구글 시트 저장 중...");
+      setStatus("메소 구매와 수입 기록을 화면에 먼저 반영했습니다. 구글 시트 저장 중...");
 
       try {
         const result = await apiGet({
@@ -1530,13 +1746,20 @@
           pending: false,
         };
 
+        const savedIncomeRecord = result.record || {
+          ...tempIncomeRecord,
+          pending: false,
+        };
+
         mesoPurchases = mesoPurchases.map(item => item.id === tempId ? { ...savedPurchase, pending: false } : item);
+        records = records.map(record => record.id === tempIncomeRecord.id ? { ...savedIncomeRecord, pending: false } : record);
         renderAll();
         saveCache();
-        setStatus("메소 구매 기록 저장 완료", "ok");
+        setStatus("메소 구매 및 수입 기록 저장 완료", "ok");
       } catch (error) {
         console.error(error);
         mesoPurchases = mesoPurchases.filter(item => item.id !== tempId);
+        records = records.filter(record => record.id !== tempIncomeRecord.id);
         renderAll();
         saveCache();
         setStatus("메소 구매 기록 저장 실패: 입력값을 되돌렸습니다.", "error");
@@ -1654,6 +1877,7 @@
     });
 
     $("monthFilter").addEventListener("change", renderAll);
+    $("settlementMonthFilter").addEventListener("change", renderAll);
     $("refreshButton").addEventListener("click", loadData);
     $("addIncomeCategory").addEventListener("click", () => addCategory("income"));
     $("addExpenseCategory").addEventListener("click", () => addCategory("expense"));
@@ -1742,6 +1966,7 @@
         const tab = button.dataset.tab;
         $("ledgerTab").style.display = tab === "ledger" ? "block" : "none";
         $("purchaseTab").style.display = tab === "purchase" ? "block" : "none";
+        $("settlementTab").style.display = tab === "settlement" ? "block" : "none";
         $("settingsTab").style.display = tab === "settings" ? "block" : "none";
       });
     });
