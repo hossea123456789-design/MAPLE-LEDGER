@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v15</title>
+  <title>메이플스토리 장부 앱 v16</title>
   <style>
     :root {
       --bg: #020617;
@@ -653,6 +653,37 @@
       margin-bottom: 14px;
     }
 
+    .settlement-mode {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 5px;
+      background: #020617;
+      border: 1px solid #334155;
+      border-radius: 14px;
+      padding: 5px;
+      margin-bottom: 8px;
+    }
+
+    .settlement-mode button {
+      border: 0;
+      border-radius: 10px;
+      padding: 8px 8px;
+      background: transparent;
+      color: var(--muted);
+      font-weight: 900;
+      cursor: pointer;
+    }
+
+    .settlement-mode button.active {
+      background: var(--button);
+      color: white;
+    }
+
+    .settlement-month-box.disabled {
+      opacity: .45;
+      pointer-events: none;
+    }
+
     .summary-section {
       margin-top: 14px;
     }
@@ -922,7 +953,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v15</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v16</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -1107,15 +1138,21 @@
     <main id="settlementTab" style="display:none">
       <section class="card">
         <h2>결산</h2>
-        <p class="desc">선택한 년월 기준으로 수입/지출 카테고리별 총액과 비중을 확인합니다.</p>
+        <p class="desc">전체 또는 선택한 년월 기준으로 수입/지출 카테고리별 총액과 비중을 확인합니다.</p>
 
         <div class="settlement-controls">
-          <div class="field">
-            <label>결산 년월</label>
-            <input id="settlementMonthFilter" type="month" />
+          <div>
+            <div class="settlement-mode">
+              <button id="settlementAllButton" class="active" type="button">전체</button>
+              <button id="settlementMonthButton" type="button">월별</button>
+            </div>
+            <div class="field settlement-month-box disabled" id="settlementMonthBox">
+              <label>결산 년월</label>
+              <input id="settlementMonthFilter" type="month" />
+            </div>
           </div>
           <div class="purchase-result">
-            <div class="small">월 순액</div>
+            <div class="small" id="settlementNetLabel">전체 순액</div>
             <div class="big" id="settlementNetTotal">0억</div>
           </div>
         </div>
@@ -1182,6 +1219,7 @@
     let categories = DEFAULT_CATEGORIES;
     let currentType = "income";
     let currentPurchaseMode = "mesoToCash";
+    let settlementMode = "all";
     let isLoading = false;
 
     const CACHE_KEY = "maple-ledger-cache-v11";
@@ -1360,9 +1398,11 @@
       `).join("");
     }
 
-    function buildCategorySummary(type, month) {
+    function buildCategorySummary(type, month, mode = "all") {
       const filtered = records.filter(record => {
-        return record.type === type && dateString(record.created_at).startsWith(month);
+        if (record.type !== type) return false;
+        if (mode === "all") return true;
+        return dateString(record.created_at).startsWith(month);
       });
 
       const total = filtered.reduce((sum, record) => sum + Number(record.amount || 0), 0);
@@ -1410,10 +1450,22 @@
       }).join("");
     }
 
+    function setSettlementMode(mode) {
+      settlementMode = mode;
+
+      const isAll = mode === "all";
+      $("settlementAllButton").classList.toggle("active", isAll);
+      $("settlementMonthButton").classList.toggle("active", !isAll);
+      $("settlementMonthBox").classList.toggle("disabled", isAll);
+      $("settlementNetLabel").textContent = isAll ? "전체 순액" : "월 순액";
+
+      renderSettlement();
+    }
+
     function renderSettlement() {
       const month = $("settlementMonthFilter").value || monthValue;
-      const incomeSummary = buildCategorySummary("income", month);
-      const expenseSummary = buildCategorySummary("expense", month);
+      const incomeSummary = buildCategorySummary("income", month, settlementMode);
+      const expenseSummary = buildCategorySummary("expense", month, settlementMode);
       const net = incomeSummary.total - expenseSummary.total;
 
       $("incomeSummaryTotal").textContent = `+${formatEok(incomeSummary.total)}`;
@@ -1877,7 +1929,9 @@
     });
 
     $("monthFilter").addEventListener("change", renderAll);
-    $("settlementMonthFilter").addEventListener("change", renderAll);
+    $("settlementMonthFilter").addEventListener("change", renderSettlement);
+    $("settlementAllButton").addEventListener("click", () => setSettlementMode("all"));
+    $("settlementMonthButton").addEventListener("click", () => setSettlementMode("month"));
     $("refreshButton").addEventListener("click", loadData);
     $("addIncomeCategory").addEventListener("click", () => addCategory("income"));
     $("addExpenseCategory").addEventListener("click", () => addCategory("expense"));
