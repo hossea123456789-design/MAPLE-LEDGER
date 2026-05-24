@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v26</title>
+  <title>메이플스토리 장부 앱 v27</title>
   <style>
     :root {
       --bg: #020617;
@@ -1359,7 +1359,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v26</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v27</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -2166,16 +2166,41 @@
       setStatus("장비 현황 전체를 저장하는 중...");
 
       try {
-        const result = await apiPost({
-          action: "saveEquipmentSnapshot",
-          equipmentItems,
-          extraItems,
+        for (const item of equipmentItems) {
+          const result = await apiGet({
+            action: "updateEquipment",
+            slot_id: item.slot_id,
+            slot_name: item.slot_name,
+            item_name: item.item_name || "",
+            price_eok: Number(item.price_eok || 0),
+            is_untradeable: Boolean(item.is_untradeable),
+          });
+
+          if (!result.ok) throw new Error(result.message || "장비 저장 실패");
+        }
+
+        const clearResult = await apiGet({
+          action: "clearEquipmentExtra",
         });
 
-        if (!result.ok) throw new Error(result.message || "장비 전체 저장 실패");
+        if (!clearResult.ok) throw new Error(clearResult.message || "추가 항목 초기화 실패");
 
-        equipmentItems = result.equipmentItems || equipmentItems;
-        extraItems = result.extraItems || extraItems;
+        for (const item of extraItems) {
+          const result = await apiGet({
+            action: "addEquipmentExtra",
+            id: item.id || "",
+            item_name: item.item_name || "",
+            price_eok: Number(item.price_eok || 0),
+          });
+
+          if (!result.ok) throw new Error(result.message || "추가 항목 저장 실패");
+        }
+
+        const refreshed = await apiGet({ action: "loadAll" });
+        if (!refreshed.ok) throw new Error(refreshed.message || "저장 후 새로고침 실패");
+
+        equipmentItems = refreshed.equipmentItems || equipmentItems;
+        extraItems = refreshed.extraItems || extraItems;
 
         renderEquipment();
         renderExtraItems();
@@ -2183,7 +2208,7 @@
         setStatus("장비 현황 전체 저장 완료", "ok");
       } catch (error) {
         console.error(error);
-        setStatus("장비 현황 저장 실패", "error");
+        setStatus("장비 현황 저장 실패: " + (error.message || ""), "error");
       }
     }
 
