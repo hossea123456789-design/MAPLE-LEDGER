@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v20</title>
+  <title>메이플스토리 장부 앱 v21</title>
   <style>
     :root {
       --bg: #020617;
@@ -755,6 +755,68 @@
       white-space: nowrap;
     }
 
+    .equipment-value-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .equipment-value-card {
+      border: 1px solid var(--line);
+      background: #020617;
+      border-radius: 12px;
+      padding: 10px;
+    }
+
+    .equipment-value-card .small {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .equipment-value-card .value {
+      margin-top: 4px;
+      font-size: 16px;
+      font-weight: 950;
+      white-space: nowrap;
+    }
+
+    .equipment-value-card .value.total { color: var(--gold); }
+    .equipment-value-card .value.tradeable { color: var(--ok); }
+
+    .equipment-check-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .equipment-check-row input {
+      width: auto;
+      accent-color: var(--gold);
+    }
+
+    .equipment-slot.untradeable {
+      border-color: rgba(251, 191, 36, .34);
+      background:
+        linear-gradient(135deg, rgba(251, 191, 36, .08), transparent 46%),
+        #020617;
+    }
+
+    .equipment-untradeable-badge {
+      color: var(--gold);
+      font-size: 10px;
+      font-weight: 950;
+      border: 1px solid rgba(251, 191, 36, .35);
+      border-radius: 999px;
+      padding: 2px 5px;
+      white-space: nowrap;
+    }
+
     .equipment-board {
       display: grid;
       grid-template-columns: repeat(7, 132px);
@@ -1114,6 +1176,10 @@
         min-width: 0;
       }
 
+      .equipment-value-grid {
+        grid-template-columns: 1fr;
+      }
+
       .equipment-board {
         grid-template-columns: repeat(7, 118px);
         gap: 6px;
@@ -1186,7 +1252,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v20</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v21</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -1372,19 +1438,31 @@
     <main id="equipmentTab" style="display:none">
       <section class="card">
         <h2>장비 현황</h2>
-        <p class="desc">장착 중인 장비명과 가격을 캐릭터 장비창 형태로 정리합니다. 가격 단위는 억 메소입니다. 장비명이 긴 경우 2줄 이상으로 입력할 수 있습니다.</p>
+        <p class="desc">장착 중인 장비명과 가격을 캐릭터 장비창 형태로 정리합니다. 영교불 장비는 전체 가치에는 포함되지만 교환 가능 가치와 현금화 계산에서는 제외됩니다.</p>
 
         <div class="equipment-toolbar">
           <div class="equipment-total">
             <div class="small">장비 총 가치</div>
             <div class="big" id="equipmentTotalValue">0억</div>
+
+            <div class="equipment-value-grid">
+              <div class="equipment-value-card">
+                <div class="small">전체 장비 가치</div>
+                <div class="value total" id="equipmentAllValue">0억</div>
+              </div>
+              <div class="equipment-value-card">
+                <div class="small">교환 가능 가치</div>
+                <div class="value tradeable" id="equipmentTradeableValue">0억</div>
+              </div>
+            </div>
+
             <div class="equipment-cash-converter">
               <div>
                 <label>억당 현금</label>
                 <input id="equipmentCashPerEokInput" type="number" min="0" step="1" placeholder="예: 1600" />
               </div>
               <div class="equipment-cash-result">
-                <div class="small">현금 환산</div>
+                <div class="small">교환 가능 현금화</div>
                 <div class="value" id="equipmentCashValue">0원</div>
               </div>
             </div>
@@ -1517,7 +1595,7 @@
       ["heart", "기계심장", 5, 7],
 
       ["pocket", "포켓아이템", 6, 1],
-      ["badge", "뱃지", 6, 2],
+      ["badge", "뱃지", 6, 7],
     ];
 
     let equipmentItems = [];
@@ -1704,14 +1782,17 @@
       return map;
     }
 
-    function getEquipmentTotalValue() {
-      return equipmentItems.reduce((sum, item) => sum + Number(item.price_eok || 0), 0);
+    function getEquipmentTradeableValue() {
+      return equipmentItems.reduce((sum, item) => {
+        const isUntradeable = item.is_untradeable === true || item.is_untradeable === "TRUE" || item.is_untradeable === "true";
+        return isUntradeable ? sum : sum + Number(item.price_eok || 0);
+      }, 0);
     }
 
     function updateEquipmentCashValue(totalOverride) {
-      const totalEok = typeof totalOverride === "number" ? totalOverride : getEquipmentTotalValue();
+      const tradeableEok = typeof totalOverride === "number" ? totalOverride : getEquipmentTradeableValue();
       const cashPerEok = Number($("equipmentCashPerEokInput")?.value || 0);
-      const cashValue = totalEok * cashPerEok;
+      const cashValue = tradeableEok * cashPerEok;
 
       if ($("equipmentCashValue")) {
         $("equipmentCashValue").textContent = formatWon(cashValue);
@@ -1724,6 +1805,7 @@
 
       const equipmentMap = getEquipmentMap();
       let total = 0;
+      let tradeableTotal = 0;
 
       const characterPanel = `
         <div class="character-panel">
@@ -1738,21 +1820,29 @@
           slot_name: slotName,
           item_name: "",
           price_eok: "",
+          is_untradeable: false,
         };
 
-        total += Number(item.price_eok || 0);
+        const price = Number(item.price_eok || 0);
+        const isUntradeable = item.is_untradeable === true || item.is_untradeable === "TRUE" || item.is_untradeable === "true";
+        total += price;
+        if (!isUntradeable) tradeableTotal += price;
 
         return `
-          <div class="equipment-slot ${item.item_name ? "" : "empty"}" data-slot-id="${slotId}" style="grid-row:${row}; grid-column:${col};">
+          <div class="equipment-slot ${item.item_name ? "" : "empty"} ${isUntradeable ? "untradeable" : ""}" data-slot-id="${slotId}" style="grid-row:${row}; grid-column:${col};">
             <div class="equipment-slot-head">
               <div class="equipment-slot-name">${escapeHtml(slotName)}</div>
-              <div class="equipment-slot-order">#${String(index + 1).padStart(2, "0")}</div>
+              ${isUntradeable ? `<div class="equipment-untradeable-badge">영교불</div>` : `<div class="equipment-slot-order">#${String(index + 1).padStart(2, "0")}</div>`}
             </div>
             <textarea class="equipment-name-input" data-equipment-name="${slotId}" placeholder="장비명">${escapeHtml(item.item_name || "")}</textarea>
             <div class="equipment-price-row">
               <input data-equipment-price="${slotId}" type="number" min="0" step="0.01" value="${item.price_eok || ""}" placeholder="가격" />
               <span class="equipment-price-unit">억</span>
             </div>
+            <label class="equipment-check-row">
+              <input data-equipment-untradeable="${slotId}" type="checkbox" ${isUntradeable ? "checked" : ""} />
+              영교불 여부
+            </label>
             <button class="secondary-button" type="button" onclick="saveEquipmentItem('${slotId}', '${escapeAttr(slotName)}')">저장</button>
             <div class="equipment-slot-saved" id="equipmentStatus-${slotId}"></div>
           </div>
@@ -1760,17 +1850,20 @@
       }).join("");
 
       $("equipmentTotalValue").textContent = formatEok(total);
-      updateEquipmentCashValue(total);
+      $("equipmentAllValue").textContent = formatEok(total);
+      $("equipmentTradeableValue").textContent = formatEok(tradeableTotal);
+      updateEquipmentCashValue(tradeableTotal);
       board.innerHTML = characterPanel + slotHtml;
     }
 
-    function upsertEquipmentLocal(slotId, slotName, itemName, priceEok, pending = false) {
+    function upsertEquipmentLocal(slotId, slotName, itemName, priceEok, isUntradeable = false, pending = false) {
       const existingIndex = equipmentItems.findIndex(item => item.slot_id === slotId);
       const nextItem = {
         slot_id: slotId,
         slot_name: slotName,
         item_name: itemName,
         price_eok: Number(priceEok || 0),
+        is_untradeable: Boolean(isUntradeable),
         updated_at: new Date().toISOString(),
         pending,
       };
@@ -1787,12 +1880,13 @@
     window.saveEquipmentItem = async function(slotId, slotName) {
       const nameInput = document.querySelector(`[data-equipment-name="${slotId}"]`);
       const priceInput = document.querySelector(`[data-equipment-price="${slotId}"]`);
-      const status = $(`equipmentStatus-${slotId}`);
+      const untradeableInput = document.querySelector(`[data-equipment-untradeable="${slotId}"]`);
 
       const itemName = nameInput ? nameInput.value.trim() : "";
       const priceEok = Number(priceInput ? priceInput.value : 0);
+      const isUntradeable = Boolean(untradeableInput?.checked);
 
-      upsertEquipmentLocal(slotId, slotName, itemName, priceEok, true);
+      upsertEquipmentLocal(slotId, slotName, itemName, priceEok, isUntradeable, true);
       renderEquipment();
       saveCache();
       setStatus(`${slotName} 장비 정보를 저장하는 중...`);
@@ -1804,6 +1898,7 @@
           slot_name: slotName,
           item_name: itemName,
           price_eok: priceEok,
+          is_untradeable: isUntradeable,
         });
 
         if (!result.ok) throw new Error(result.message || "장비 저장 실패");
@@ -1813,10 +1908,11 @@
           slot_name: slotName,
           item_name: itemName,
           price_eok: priceEok,
+          is_untradeable: isUntradeable,
           updated_at: new Date().toISOString(),
         };
 
-        upsertEquipmentLocal(saved.slot_id, saved.slot_name, saved.item_name, saved.price_eok, false);
+        upsertEquipmentLocal(saved.slot_id, saved.slot_name, saved.item_name, saved.price_eok, saved.is_untradeable, false);
         renderEquipment();
         saveCache();
         setStatus(`${slotName} 장비 저장 완료`, "ok");
