@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v21</title>
+  <title>메이플스토리 장부 앱 v22</title>
   <style>
     :root {
       --bg: #020617;
@@ -1252,7 +1252,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v21</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v22</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -1269,8 +1269,8 @@
 
     <div class="tabs">
       <button class="tab active" data-tab="ledger">장부 기록</button>
-      <button class="tab" data-tab="purchase">메소 구매</button>
       <button class="tab" data-tab="equipment">장비 현황</button>
+      <button class="tab" data-tab="purchase">메소 구매</button>
       <button class="tab" data-tab="settlement">결산</button>
       <button class="tab" data-tab="settings">설정</button>
     </div>
@@ -1560,6 +1560,10 @@
     let currentPurchaseMode = "mesoToCash";
     let settlementMode = "all";
     let isLoading = false;
+    let settings = {};
+    let globalCashPerEok = 0;
+    let cashPerEokSaveTimer = null;
+    let isSyncingCashPerEok = false;
 
     const CACHE_KEY = "maple-ledger-cache-v17";
 
@@ -2003,6 +2007,83 @@
       renderSummaryList("expenseSummaryList", expenseSummary, "expense");
     }
 
+    function getCashPerEokInputs() {
+      return [
+        $("cashPerEokInput"),
+        $("reverseCashPerEokInput"),
+        $("equipmentCashPerEokInput"),
+      ].filter(Boolean);
+    }
+
+    function applyGlobalCashPerEok(value, options = {}) {
+      const { sourceId = "", updateInputs = true, save = true } = options;
+      const numberValue = Number(value || 0);
+
+      if (!numberValue || numberValue <= 0) return;
+
+      globalCashPerEok = numberValue;
+      settings = {
+        ...settings,
+        cash_per_eok: numberValue,
+      };
+
+      if (updateInputs) {
+        isSyncingCashPerEok = true;
+        getCashPerEokInputs().forEach(input => {
+          if (input.id !== sourceId) {
+            input.value = numberValue;
+          }
+        });
+        isSyncingCashPerEok = false;
+      }
+
+      calculatePurchase();
+      calculateReversePurchase();
+      updateEquipmentCashValue();
+      saveCache();
+
+      if (save) {
+        scheduleCashPerEokSave(numberValue);
+      }
+    }
+
+    function handleCashPerEokInput(event) {
+      if (isSyncingCashPerEok) return;
+
+      const value = Number(event.target.value || 0);
+      if (!value || value <= 0) {
+        calculatePurchase();
+        calculateReversePurchase();
+        updateEquipmentCashValue();
+        return;
+      }
+
+      applyGlobalCashPerEok(value, {
+        sourceId: event.target.id,
+        updateInputs: true,
+        save: true,
+      });
+    }
+
+    function scheduleCashPerEokSave(value) {
+      clearTimeout(cashPerEokSaveTimer);
+      cashPerEokSaveTimer = setTimeout(() => saveCashPerEokSetting(value), 500);
+    }
+
+    async function saveCashPerEokSetting(value) {
+      try {
+        await apiGet({
+          action: "updateSetting",
+          key: "cash_per_eok",
+          value,
+        });
+        setStatus(`억당 현금 ${Number(value).toLocaleString("ko-KR")}원 저장 완료`, "ok");
+      } catch (error) {
+        console.error(error);
+        setStatus("억당 현금 저장 실패: 화면에는 임시 반영되었습니다.", "error");
+      }
+    }
+
     function calculatePurchase() {
       const cashPerEok = Number($("cashPerEokInput").value);
       const mesoAmount = Number($("mesoAmountInput").value);
@@ -2135,6 +2216,8 @@
           categories,
           mesoPurchases,
           equipmentItems,
+          settings,
+          globalCashPerEok,
           savedAt: new Date().toISOString(),
         }));
       } catch (error) {
@@ -2152,6 +2235,11 @@
         categories = cache.categories || DEFAULT_CATEGORIES;
         mesoPurchases = cache.mesoPurchases || [];
         equipmentItems = cache.equipmentItems || [];
+        settings = cache.settings || {};
+        globalCashPerEok = Number(cache.globalCashPerEok || settings.cash_per_eok || 0);
+        if (globalCashPerEok) {
+          applyGlobalCashPerEok(globalCashPerEok, { updateInputs: true, save: false });
+        }
 
         renderAll();
 
@@ -2179,6 +2267,11 @@
         categories = result.categories || DEFAULT_CATEGORIES;
         mesoPurchases = result.mesoPurchases || [];
         equipmentItems = result.equipmentItems || [];
+        settings = result.settings || {};
+        globalCashPerEok = Number(settings.cash_per_eok || globalCashPerEok || 0);
+        if (globalCashPerEok) {
+          applyGlobalCashPerEok(globalCashPerEok, { updateInputs: true, save: false });
+        }
 
         renderAll();
         saveCache();
@@ -2465,14 +2558,14 @@
     $("settlementMonthButton").addEventListener("click", () => setSettlementMode("month"));
     $("refreshButton").addEventListener("click", loadData);
     $("refreshEquipmentButton").addEventListener("click", loadData);
-    $("equipmentCashPerEokInput").addEventListener("input", () => updateEquipmentCashValue());
+    $("equipmentCashPerEokInput").addEventListener("input", handleCashPerEokInput);
     $("addIncomeCategory").addEventListener("click", () => addCategory("income"));
     $("addExpenseCategory").addEventListener("click", () => addCategory("expense"));
 
-    $("cashPerEokInput").addEventListener("input", calculatePurchase);
+    $("cashPerEokInput").addEventListener("input", handleCashPerEokInput);
     $("mesoAmountInput").addEventListener("input", calculatePurchase);
     $("cashBudgetInput").addEventListener("input", calculateReversePurchase);
-    $("reverseCashPerEokInput").addEventListener("input", calculateReversePurchase);
+    $("reverseCashPerEokInput").addEventListener("input", handleCashPerEokInput);
     $("modeMesoToCashButton").addEventListener("click", () => setPurchaseMode("mesoToCash"));
     $("modeCashToMesoButton").addEventListener("click", () => setPurchaseMode("cashToMeso"));
     $("applyReverseCalcButton").addEventListener("click", applyReverseCalculation);
@@ -2529,10 +2622,11 @@
     });
 
     $("clearPurchaseButton").addEventListener("click", () => {
-      $("cashPerEokInput").value = "";
       $("mesoAmountInput").value = "";
       $("cashBudgetInput").value = "";
-      $("reverseCashPerEokInput").value = "";
+      if (globalCashPerEok) {
+        applyGlobalCashPerEok(globalCashPerEok, { updateInputs: true, save: false });
+      }
       $("accountRawInput").value = "";
       $("accountOnlyOutput").value = "";
       $("purchaseMemoInput").value = "";
