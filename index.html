@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v28</title>
+  <title>메이플스토리 장부 앱 v29</title>
   <style>
     :root {
       --bg: #020617;
@@ -1359,7 +1359,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v28</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v29</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -1748,6 +1748,8 @@
 
     let equipmentItems = [];
     let extraItems = [];
+    let savedEquipmentItems = [];
+    let savedExtraItems = [];
 
     const $ = (id) => document.getElementById(id);
 
@@ -1955,6 +1957,63 @@
         price_eok: Number(item.price_eok || 0),
         updated_at: item.updated_at || new Date().toISOString(),
       })));
+    }
+
+    function normalizeEquipmentItemForCompare(item) {
+      return {
+        slot_id: String(item.slot_id || ""),
+        slot_name: String(item.slot_name || ""),
+        item_name: String(item.item_name || ""),
+        price_eok: Number(item.price_eok || 0),
+        is_untradeable: Boolean(item.is_untradeable === true || item.is_untradeable === "TRUE" || item.is_untradeable === "true"),
+      };
+    }
+
+    function normalizeExtraItemForCompare(item) {
+      return {
+        id: String(item.id || ""),
+        item_name: String(item.item_name || ""),
+        price_eok: Number(item.price_eok || 0),
+      };
+    }
+
+    function stableJson(value) {
+      return JSON.stringify(value);
+    }
+
+    function cloneEquipmentItems(items) {
+      return (items || []).map(item => ({ ...normalizeEquipmentItemForCompare(item), updated_at: item.updated_at || "" }));
+    }
+
+    function cloneExtraItems(items) {
+      return (items || []).map(item => ({ ...normalizeExtraItemForCompare(item), updated_at: item.updated_at || "" }));
+    }
+
+    function markCurrentEquipmentAsSaved() {
+      savedEquipmentItems = cloneEquipmentItems(equipmentItems);
+      savedExtraItems = cloneExtraItems(extraItems);
+    }
+
+    function getChangedEquipmentItems() {
+      const savedMap = {};
+      savedEquipmentItems.forEach(item => {
+        savedMap[item.slot_id] = normalizeEquipmentItemForCompare(item);
+      });
+
+      return equipmentItems.filter(item => {
+        const current = normalizeEquipmentItemForCompare(item);
+        const saved = savedMap[current.slot_id];
+
+        if (!saved) return true;
+        return stableJson(current) !== stableJson(saved);
+      });
+    }
+
+    function hasExtraItemsChanged() {
+      const current = cloneExtraItems(extraItems).map(normalizeExtraItemForCompare);
+      const saved = cloneExtraItems(savedExtraItems).map(normalizeExtraItemForCompare);
+
+      return stableJson(current) !== stableJson(saved);
     }
 
     function getExtraItemsTotal() {
@@ -2185,10 +2244,22 @@
       renderExtraItems();
       saveCache();
 
-      setStatus("장비 현황 전체를 저장하는 중...");
+      const changedEquipmentItems = getChangedEquipmentItems();
+      const shouldSaveExtraItems = hasExtraItemsChanged();
+      const totalSaveCount = changedEquipmentItems.length + (shouldSaveExtraItems ? 1 : 0);
+
+      if (totalSaveCount === 0) {
+        setStatus("변경된 장비 현황이 없습니다.", "ok");
+        return;
+      }
+
+      setStatus(`장비 현황 저장 시작... 변경 ${totalSaveCount}건`);
 
       try {
-        for (const item of equipmentItems) {
+        for (let i = 0; i < changedEquipmentItems.length; i++) {
+          const item = changedEquipmentItems[i];
+          setStatus(`장비 저장 중... ${i + 1}/${totalSaveCount} ${item.slot_name || item.slot_id}`);
+
           const result = await apiGet({
             action: "updateEquipment",
             slot_id: item.slot_id,
@@ -2203,15 +2274,21 @@
           }
         }
 
-        const extraResult = await apiGet({
-          action: "updateSetting",
-          key: "extra_items_json",
-          value: serializeExtraItems(),
-        });
+        if (shouldSaveExtraItems) {
+          setStatus(`추가 항목 저장 중... ${changedEquipmentItems.length + 1}/${totalSaveCount}`);
 
-        if (!extraResult.ok) {
-          throw new Error(`추가 항목 저장 실패: ${extraResult.message || "unknown"}`);
+          const extraResult = await apiGet({
+            action: "updateSetting",
+            key: "extra_items_json",
+            value: serializeExtraItems(),
+          });
+
+          if (!extraResult.ok) {
+            throw new Error(`추가 항목 저장 실패: ${extraResult.message || "unknown"}`);
+          }
         }
+
+        setStatus("저장 후 데이터 확인 중...");
 
         const refreshed = await apiGet({ action: "loadAll" });
         if (!refreshed.ok) throw new Error(refreshed.message || "저장 후 새로고침 실패");
@@ -2221,10 +2298,12 @@
         extraItems = parseExtraItemsFromSettings(settings);
         if (!extraItems.length) extraItems = refreshed.extraItems || extraItems;
 
+        markCurrentEquipmentAsSaved();
+
         renderEquipment();
         renderExtraItems();
         saveCache();
-        setStatus("장비 현황 전체 저장 완료", "ok");
+        setStatus(`장비 현황 저장 완료: ${totalSaveCount}건 반영`, "ok");
       } catch (error) {
         console.error(error);
         setStatus("장비 현황 저장 실패: " + (error.message || ""), "error");
@@ -2271,6 +2350,7 @@
         equipmentItems = refreshed.equipmentItems || equipmentItems;
         settings = refreshed.settings || settings;
         extraItems = parseExtraItemsFromSettings(settings);
+        markCurrentEquipmentAsSaved();
 
         renderEquipment();
         renderExtraItems();
@@ -2663,6 +2743,8 @@
         if (globalCashPerEok) {
           applyGlobalCashPerEok(globalCashPerEok, { updateInputs: true, save: false });
         }
+        markCurrentEquipmentAsSaved();
+        markCurrentEquipmentAsSaved();
 
         renderAll();
 
