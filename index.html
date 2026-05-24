@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v27</title>
+  <title>메이플스토리 장부 앱 v28</title>
   <style>
     :root {
       --bg: #020617;
@@ -1359,7 +1359,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v27</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v28</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -1592,7 +1592,7 @@
 
         <div class="equipment-extra-section">
           <h3>추가 강화/성장 항목</h3>
-          <p class="desc">조각, 심볼처럼 장비는 아니지만 비용이 들어간 항목을 직접 추가합니다. 전체 가치와 현금 기준 금액에 합산됩니다.</p>
+          <p class="desc">조각, 심볼처럼 장비는 아니지만 비용이 들어간 항목을 직접 추가합니다. 전체 가치와 현금 기준 금액에 합산되며, 상단 [저장] 버튼을 눌러 함께 저장됩니다.</p>
 
           <div class="equipment-extra-form">
             <div class="field">
@@ -1935,6 +1935,28 @@
       return item.is_untradeable === true || item.is_untradeable === "TRUE" || item.is_untradeable === "true";
     }
 
+    function parseExtraItemsFromSettings(settingsObject) {
+      const raw = settingsObject?.extra_items_json;
+      if (!raw) return [];
+
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (error) {
+        console.error("extra_items_json parse failed", error);
+        return [];
+      }
+    }
+
+    function serializeExtraItems() {
+      return JSON.stringify(extraItems.map(item => ({
+        id: item.id || `extra-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        item_name: item.item_name || "",
+        price_eok: Number(item.price_eok || 0),
+        updated_at: item.updated_at || new Date().toISOString(),
+      })));
+    }
+
     function getExtraItemsTotal() {
       return extraItems.reduce((sum, item) => sum + Number(item.price_eok || 0), 0);
     }
@@ -2176,31 +2198,28 @@
             is_untradeable: Boolean(item.is_untradeable),
           });
 
-          if (!result.ok) throw new Error(result.message || "장비 저장 실패");
+          if (!result.ok) {
+            throw new Error(`${item.slot_name || item.slot_id} 저장 실패: ${result.message || "unknown"}`);
+          }
         }
 
-        const clearResult = await apiGet({
-          action: "clearEquipmentExtra",
+        const extraResult = await apiGet({
+          action: "updateSetting",
+          key: "extra_items_json",
+          value: serializeExtraItems(),
         });
 
-        if (!clearResult.ok) throw new Error(clearResult.message || "추가 항목 초기화 실패");
-
-        for (const item of extraItems) {
-          const result = await apiGet({
-            action: "addEquipmentExtra",
-            id: item.id || "",
-            item_name: item.item_name || "",
-            price_eok: Number(item.price_eok || 0),
-          });
-
-          if (!result.ok) throw new Error(result.message || "추가 항목 저장 실패");
+        if (!extraResult.ok) {
+          throw new Error(`추가 항목 저장 실패: ${extraResult.message || "unknown"}`);
         }
 
         const refreshed = await apiGet({ action: "loadAll" });
         if (!refreshed.ok) throw new Error(refreshed.message || "저장 후 새로고침 실패");
 
         equipmentItems = refreshed.equipmentItems || equipmentItems;
-        extraItems = refreshed.extraItems || extraItems;
+        settings = refreshed.settings || settings;
+        extraItems = parseExtraItemsFromSettings(settings);
+        if (!extraItems.length) extraItems = refreshed.extraItems || extraItems;
 
         renderEquipment();
         renderExtraItems();
@@ -2215,6 +2234,9 @@
     async function resetEquipment() {
       const confirmed = confirm("지금 입력된 장비 및 메소 데이터가 전부 지워집니다. 초기화하시겠습니까?");
       if (!confirmed) return;
+
+      const previousEquipmentItems = [...equipmentItems];
+      const previousExtraItems = [...extraItems];
 
       equipmentItems = equipmentItems.map(item => ({
         ...item,
@@ -2233,15 +2255,35 @@
         const result = await apiGet({ action: "resetEquipment" });
         if (!result.ok) throw new Error(result.message || "장비 초기화 실패");
 
-        equipmentItems = result.equipmentItems || equipmentItems;
-        extraItems = result.extraItems || [];
+        const clearExtraResult = await apiGet({
+          action: "updateSetting",
+          key: "extra_items_json",
+          value: "[]",
+        });
+
+        if (!clearExtraResult.ok) {
+          throw new Error(clearExtraResult.message || "추가 항목 초기화 실패");
+        }
+
+        const refreshed = await apiGet({ action: "loadAll" });
+        if (!refreshed.ok) throw new Error(refreshed.message || "초기화 후 새로고침 실패");
+
+        equipmentItems = refreshed.equipmentItems || equipmentItems;
+        settings = refreshed.settings || settings;
+        extraItems = parseExtraItemsFromSettings(settings);
+
         renderEquipment();
         renderExtraItems();
         saveCache();
         setStatus("장비 현황 초기화 완료", "ok");
       } catch (error) {
         console.error(error);
-        setStatus("장비 초기화 실패", "error");
+        equipmentItems = previousEquipmentItems;
+        extraItems = previousExtraItems;
+        renderEquipment();
+        renderExtraItems();
+        saveCache();
+        setStatus("장비 초기화 실패: " + (error.message || ""), "error");
       }
     }
 
@@ -2614,8 +2656,9 @@
         categories = cache.categories || DEFAULT_CATEGORIES;
         mesoPurchases = cache.mesoPurchases || [];
         equipmentItems = cache.equipmentItems || [];
-        extraItems = cache.extraItems || [];
         settings = cache.settings || {};
+        extraItems = parseExtraItemsFromSettings(settings);
+        if (!extraItems.length) extraItems = cache.extraItems || [];
         globalCashPerEok = Number(cache.globalCashPerEok || settings.cash_per_eok || 0);
         if (globalCashPerEok) {
           applyGlobalCashPerEok(globalCashPerEok, { updateInputs: true, save: false });
@@ -2647,8 +2690,9 @@
         categories = result.categories || DEFAULT_CATEGORIES;
         mesoPurchases = result.mesoPurchases || [];
         equipmentItems = result.equipmentItems || [];
-        extraItems = result.extraItems || [];
         settings = result.settings || {};
+        extraItems = parseExtraItemsFromSettings(settings);
+        if (!extraItems.length) extraItems = result.extraItems || [];
         globalCashPerEok = Number(settings.cash_per_eok || globalCashPerEok || 0);
         if (globalCashPerEok) {
           applyGlobalCashPerEok(globalCashPerEok, { updateInputs: true, save: false });
