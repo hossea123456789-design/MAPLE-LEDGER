@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v22</title>
+  <title>메이플스토리 장부 앱 v24</title>
   <style>
     :root {
       --bg: #020617;
@@ -785,6 +785,67 @@
     .equipment-value-card .value.total { color: var(--gold); }
     .equipment-value-card .value.tradeable { color: var(--ok); }
 
+
+    .equipment-action-buttons {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      align-self: stretch;
+    }
+
+    .equipment-action-buttons button {
+      height: 42px;
+    }
+
+    .equipment-extra-section {
+      margin-top: 18px;
+      border-top: 1px solid var(--line);
+      padding-top: 16px;
+    }
+
+    .equipment-extra-form {
+      display: grid;
+      grid-template-columns: minmax(130px, 1.3fr) minmax(90px, .8fr) 90px;
+      gap: 8px;
+      align-items: end;
+      margin-top: 10px;
+    }
+
+    .equipment-extra-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .equipment-extra-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 90px 30px;
+      gap: 8px;
+      align-items: center;
+      border: 1px solid var(--line);
+      background: #020617;
+      border-radius: 12px;
+      padding: 10px 12px;
+    }
+
+    .equipment-extra-name {
+      font-weight: 900;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .equipment-extra-price {
+      color: var(--gold);
+      font-weight: 950;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .equipment-value-card .value.cash-total {
+      color: #f8fafc;
+    }
+
     .equipment-check-row {
       display: flex;
       align-items: center;
@@ -1021,6 +1082,43 @@
     .summary-bar-fill.income { background: var(--orange); }
     .summary-bar-fill.expense { background: var(--blue); }
 
+    .monthly-net-section {
+      margin-top: 18px;
+      border-top: 1px solid var(--line);
+      padding-top: 16px;
+    }
+
+    .monthly-net-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .monthly-net-row {
+      display: grid;
+      grid-template-columns: 76px minmax(0, 1fr);
+      gap: 12px;
+      align-items: center;
+      border: 1px solid var(--line);
+      background: #020617;
+      border-radius: 14px;
+      padding: 10px 12px;
+    }
+
+    .monthly-net-month {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .monthly-net-value {
+      font-size: 15px;
+      font-weight: 950;
+      text-align: right;
+      white-space: nowrap;
+    }
+
     @media (max-width: 760px) {
       .grid3 {
         grid-template-columns: minmax(0, .9fr) minmax(0, .9fr) minmax(0, 1.25fr);
@@ -1176,6 +1274,15 @@
         min-width: 0;
       }
 
+      .equipment-action-buttons,
+      .equipment-extra-form {
+        grid-template-columns: 1fr;
+      }
+
+      .equipment-extra-row {
+        grid-template-columns: minmax(0, 1fr) 80px 26px;
+      }
+
       .equipment-value-grid {
         grid-template-columns: 1fr;
       }
@@ -1252,7 +1359,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v22</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v24</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -1438,7 +1545,7 @@
     <main id="equipmentTab" style="display:none">
       <section class="card">
         <h2>장비 현황</h2>
-        <p class="desc">장착 중인 장비명과 가격을 캐릭터 장비창 형태로 정리합니다. 영교불 장비는 전체 가치에는 포함되지만 교환 가능 가치와 현금화 계산에서는 제외됩니다.</p>
+        <p class="desc">장착 중인 장비명과 가격을 캐릭터 장비창 형태로 정리합니다. 영교불 장비는 전체 가치에는 포함되지만 교환 가능 가치와 현금화 계산에서는 제외됩니다. 조각·심볼 등 추가 강화 항목은 전체 가치에 합산됩니다.</p>
 
         <div class="equipment-toolbar">
           <div class="equipment-total">
@@ -1454,6 +1561,14 @@
                 <div class="small">교환 가능 가치</div>
                 <div class="value tradeable" id="equipmentTradeableValue">0억</div>
               </div>
+              <div class="equipment-value-card">
+                <div class="small">전체 구매 추정 현금</div>
+                <div class="value cash-total" id="equipmentAllCashValue">0원</div>
+              </div>
+              <div class="equipment-value-card">
+                <div class="small">교환 가능 현금화</div>
+                <div class="value tradeable" id="equipmentTradeableCashValue">0원</div>
+              </div>
             </div>
 
             <div class="equipment-cash-converter">
@@ -1462,15 +1577,37 @@
                 <input id="equipmentCashPerEokInput" type="number" min="0" step="1" placeholder="예: 1600" />
               </div>
               <div class="equipment-cash-result">
-                <div class="small">교환 가능 현금화</div>
+                <div class="small">현재 환산 기준</div>
                 <div class="value" id="equipmentCashValue">0원</div>
               </div>
             </div>
           </div>
-          <button class="secondary-button" id="refreshEquipmentButton" type="button">장비 새로고침</button>
+          <div class="equipment-action-buttons">
+            <button class="secondary-button" id="resetEquipmentButton" type="button">장비 초기화</button>
+            <button class="primary-button" id="saveAllEquipmentButton" type="button">저장</button>
+          </div>
         </div>
 
         <div class="equipment-board" id="equipmentBoard"></div>
+
+        <div class="equipment-extra-section">
+          <h3>추가 강화/성장 항목</h3>
+          <p class="desc">조각, 심볼처럼 장비는 아니지만 비용이 들어간 항목을 직접 추가합니다. 전체 가치와 현금 기준 금액에 합산됩니다.</p>
+
+          <div class="equipment-extra-form">
+            <div class="field">
+              <label>항목명</label>
+              <input id="extraItemNameInput" placeholder="예: 조각, 심볼, 헥사 강화" />
+            </div>
+            <div class="field">
+              <label>가격 / 억</label>
+              <input id="extraItemPriceInput" type="number" min="0" step="0.01" placeholder="예: 120" />
+            </div>
+            <button class="secondary-button" id="addExtraItemButton" type="button">항목 추가</button>
+          </div>
+
+          <div class="equipment-extra-list" id="extraItemList"></div>
+        </div>
       </section>
     </main>
 
@@ -1513,6 +1650,13 @@
             <div class="summary-list" id="expenseSummaryList"></div>
           </section>
         </div>
+
+        <section class="monthly-net-section">
+          <div class="summary-title-row">
+            <h3 class="summary-title">월별 최종 수입/지출</h3>
+          </div>
+          <div class="monthly-net-list" id="monthlyNetList"></div>
+        </section>
       </section>
     </main>
 
@@ -1603,6 +1747,7 @@
     ];
 
     let equipmentItems = [];
+    let extraItems = [];
 
     const $ = (id) => document.getElementById(id);
 
@@ -1786,21 +1931,104 @@
       return map;
     }
 
+    function isEquipmentUntradeable(item) {
+      return item.is_untradeable === true || item.is_untradeable === "TRUE" || item.is_untradeable === "true";
+    }
+
+    function getExtraItemsTotal() {
+      return extraItems.reduce((sum, item) => sum + Number(item.price_eok || 0), 0);
+    }
+
+    function getEquipmentAllValue() {
+      const equipmentTotal = equipmentItems.reduce((sum, item) => sum + Number(item.price_eok || 0), 0);
+      return equipmentTotal + getExtraItemsTotal();
+    }
+
     function getEquipmentTradeableValue() {
       return equipmentItems.reduce((sum, item) => {
-        const isUntradeable = item.is_untradeable === true || item.is_untradeable === "TRUE" || item.is_untradeable === "true";
-        return isUntradeable ? sum : sum + Number(item.price_eok || 0);
+        return isEquipmentUntradeable(item) ? sum : sum + Number(item.price_eok || 0);
       }, 0);
     }
 
     function updateEquipmentCashValue(totalOverride) {
       const tradeableEok = typeof totalOverride === "number" ? totalOverride : getEquipmentTradeableValue();
+      const totalEok = getEquipmentAllValue();
       const cashPerEok = Number($("equipmentCashPerEokInput")?.value || 0);
-      const cashValue = tradeableEok * cashPerEok;
 
-      if ($("equipmentCashValue")) {
-        $("equipmentCashValue").textContent = formatWon(cashValue);
+      const tradeableCashValue = tradeableEok * cashPerEok;
+      const totalCashValue = totalEok * cashPerEok;
+
+      if ($("equipmentCashValue")) $("equipmentCashValue").textContent = formatWon(tradeableCashValue);
+      if ($("equipmentTradeableCashValue")) $("equipmentTradeableCashValue").textContent = formatWon(tradeableCashValue);
+      if ($("equipmentAllCashValue")) $("equipmentAllCashValue").textContent = formatWon(totalCashValue);
+    }
+
+    function collectEquipmentFromInputs() {
+      EQUIPMENT_SLOTS.forEach(([slotId, slotName]) => {
+        const nameInput = document.querySelector(`[data-equipment-name="${slotId}"]`);
+        const priceInput = document.querySelector(`[data-equipment-price="${slotId}"]`);
+        const untradeableInput = document.querySelector(`[data-equipment-untradeable="${slotId}"]`);
+
+        if (!nameInput && !priceInput && !untradeableInput) return;
+
+        upsertEquipmentLocal(
+          slotId,
+          slotName,
+          nameInput ? nameInput.value.trim() : "",
+          Number(priceInput ? priceInput.value : 0),
+          Boolean(untradeableInput?.checked),
+          true
+        );
+      });
+    }
+
+    function renderExtraItems() {
+      const list = $("extraItemList");
+      if (!list) return;
+
+      if (!extraItems.length) {
+        list.innerHTML = `<div class="empty">추가된 항목이 없습니다.</div>`;
+        return;
       }
+
+      list.innerHTML = extraItems.map(item => `
+        <div class="equipment-extra-row">
+          <div class="equipment-extra-name">${escapeHtml(item.item_name || "")}</div>
+          <div class="equipment-extra-price">${formatEok(item.price_eok || 0)}</div>
+          <button class="delete" type="button" onclick="deleteExtraItem('${item.id}')">×</button>
+        </div>
+      `).join("");
+    }
+
+    function addExtraItem() {
+      const name = $("extraItemNameInput").value.trim();
+      const price = Number($("extraItemPriceInput").value || 0);
+
+      if (!name || !price) return;
+
+      extraItems = [
+        ...extraItems,
+        {
+          id: `extra-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          item_name: name,
+          price_eok: price,
+          updated_at: new Date().toISOString(),
+        }
+      ];
+
+      $("extraItemNameInput").value = "";
+      $("extraItemPriceInput").value = "";
+
+      renderEquipment();
+      renderExtraItems();
+      saveCache();
+    }
+
+    window.deleteExtraItem = function(id) {
+      extraItems = extraItems.filter(item => item.id !== id);
+      renderEquipment();
+      renderExtraItems();
+      saveCache();
     }
 
     function renderEquipment() {
@@ -1847,14 +2075,14 @@
               <input data-equipment-untradeable="${slotId}" type="checkbox" ${isUntradeable ? "checked" : ""} />
               영교불 여부
             </label>
-            <button class="secondary-button" type="button" onclick="saveEquipmentItem('${slotId}', '${escapeAttr(slotName)}')">저장</button>
-            <div class="equipment-slot-saved" id="equipmentStatus-${slotId}"></div>
           </div>
         `;
       }).join("");
 
-      $("equipmentTotalValue").textContent = formatEok(total);
-      $("equipmentAllValue").textContent = formatEok(total);
+      const extraTotal = getExtraItemsTotal();
+      const allTotal = total + extraTotal;
+      $("equipmentTotalValue").textContent = formatEok(allTotal);
+      $("equipmentAllValue").textContent = formatEok(allTotal);
       $("equipmentTradeableValue").textContent = formatEok(tradeableTotal);
       updateEquipmentCashValue(tradeableTotal);
       board.innerHTML = characterPanel + slotHtml;
@@ -1929,6 +2157,69 @@
       }
     }
 
+    async function saveAllEquipment() {
+      collectEquipmentFromInputs();
+      renderEquipment();
+      renderExtraItems();
+      saveCache();
+
+      setStatus("장비 현황 전체를 저장하는 중...");
+
+      try {
+        const result = await apiGet({
+          action: "saveEquipmentSnapshot",
+          equipment_json: JSON.stringify(equipmentItems),
+          extra_json: JSON.stringify(extraItems),
+        });
+
+        if (!result.ok) throw new Error(result.message || "장비 전체 저장 실패");
+
+        equipmentItems = result.equipmentItems || equipmentItems;
+        extraItems = result.extraItems || extraItems;
+
+        renderEquipment();
+        renderExtraItems();
+        saveCache();
+        setStatus("장비 현황 전체 저장 완료", "ok");
+      } catch (error) {
+        console.error(error);
+        setStatus("장비 현황 저장 실패", "error");
+      }
+    }
+
+    async function resetEquipment() {
+      const confirmed = confirm("지금 입력된 장비 및 메소 데이터가 전부 지워집니다. 초기화하시겠습니까?");
+      if (!confirmed) return;
+
+      equipmentItems = equipmentItems.map(item => ({
+        ...item,
+        item_name: "",
+        price_eok: 0,
+        is_untradeable: false,
+      }));
+      extraItems = [];
+
+      renderEquipment();
+      renderExtraItems();
+      saveCache();
+      setStatus("장비 현황을 초기화하는 중...");
+
+      try {
+        const result = await apiGet({ action: "resetEquipment" });
+        if (!result.ok) throw new Error(result.message || "장비 초기화 실패");
+
+        equipmentItems = result.equipmentItems || equipmentItems;
+        extraItems = result.extraItems || [];
+        renderEquipment();
+        renderExtraItems();
+        saveCache();
+        setStatus("장비 현황 초기화 완료", "ok");
+      } catch (error) {
+        console.error(error);
+        setStatus("장비 초기화 실패", "error");
+      }
+    }
+
     function buildCategorySummary(type, month, mode = "all") {
       const filtered = records.filter(record => {
         if (record.type !== type) return false;
@@ -1993,6 +2284,64 @@
       renderSettlement();
     }
 
+    function buildMonthlyNetSummary() {
+      const byMonth = {};
+
+      records.forEach(record => {
+        const monthKey = dateString(record.created_at);
+        if (!monthKey) return;
+
+        if (!byMonth[monthKey]) {
+          byMonth[monthKey] = {
+            income: 0,
+            expense: 0,
+          };
+        }
+
+        if (record.type === "income") {
+          byMonth[monthKey].income += Number(record.amount || 0);
+        } else if (record.type === "expense") {
+          byMonth[monthKey].expense += Number(record.amount || 0);
+        }
+      });
+
+      return Object.entries(byMonth)
+        .map(([month, value]) => ({
+          month,
+          income: value.income,
+          expense: value.expense,
+          net: value.income - value.expense,
+        }))
+        .sort((a, b) => b.month.localeCompare(a.month));
+    }
+
+    function renderMonthlyNetList() {
+      const list = $("monthlyNetList");
+      if (!list) return;
+
+      const items = buildMonthlyNetSummary();
+
+      if (!items.length) {
+        list.innerHTML = `<div class="empty">월별 결산 기록이 없습니다.</div>`;
+        return;
+      }
+
+      list.innerHTML = items.map(item => {
+        const [year, month] = item.month.split("-");
+        const label = `${year.slice(2)}/${Number(month)}`;
+        const tone = item.net >= 0 ? "orange" : "blue";
+        const typeText = item.net >= 0 ? "수익" : "지출";
+        const sign = item.net >= 0 ? "+" : "-";
+
+        return `
+          <div class="monthly-net-row">
+            <div class="monthly-net-month">${label}</div>
+            <div class="monthly-net-value ${tone}">${typeText} ${sign}${formatEok(Math.abs(item.net))}</div>
+          </div>
+        `;
+      }).join("");
+    }
+
     function renderSettlement() {
       const month = $("settlementMonthFilter").value || monthValue;
       const incomeSummary = buildCategorySummary("income", month, settlementMode);
@@ -2005,6 +2354,7 @@
 
       renderSummaryList("incomeSummaryList", incomeSummary, "income");
       renderSummaryList("expenseSummaryList", expenseSummary, "expense");
+      renderMonthlyNetList();
     }
 
     function getCashPerEokInputs() {
@@ -2205,6 +2555,7 @@
       renderSettings();
       renderMesoPurchases();
       renderEquipment();
+      renderExtraItems();
       renderSettlement();
       calculatePurchase();
     }
@@ -2216,6 +2567,7 @@
           categories,
           mesoPurchases,
           equipmentItems,
+          extraItems,
           settings,
           globalCashPerEok,
           savedAt: new Date().toISOString(),
@@ -2235,6 +2587,7 @@
         categories = cache.categories || DEFAULT_CATEGORIES;
         mesoPurchases = cache.mesoPurchases || [];
         equipmentItems = cache.equipmentItems || [];
+        extraItems = cache.extraItems || [];
         settings = cache.settings || {};
         globalCashPerEok = Number(cache.globalCashPerEok || settings.cash_per_eok || 0);
         if (globalCashPerEok) {
@@ -2267,6 +2620,7 @@
         categories = result.categories || DEFAULT_CATEGORIES;
         mesoPurchases = result.mesoPurchases || [];
         equipmentItems = result.equipmentItems || [];
+        extraItems = result.extraItems || [];
         settings = result.settings || {};
         globalCashPerEok = Number(settings.cash_per_eok || globalCashPerEok || 0);
         if (globalCashPerEok) {
@@ -2557,7 +2911,9 @@
     $("settlementAllButton").addEventListener("click", () => setSettlementMode("all"));
     $("settlementMonthButton").addEventListener("click", () => setSettlementMode("month"));
     $("refreshButton").addEventListener("click", loadData);
-    $("refreshEquipmentButton").addEventListener("click", loadData);
+    $("resetEquipmentButton").addEventListener("click", resetEquipment);
+    $("saveAllEquipmentButton").addEventListener("click", saveAllEquipment);
+    $("addExtraItemButton").addEventListener("click", addExtraItem);
     $("equipmentCashPerEokInput").addEventListener("input", handleCashPerEokInput);
     $("addIncomeCategory").addEventListener("click", () => addCategory("income"));
     $("addExpenseCategory").addEventListener("click", () => addCategory("expense"));
