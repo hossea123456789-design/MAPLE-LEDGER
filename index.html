@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v24</title>
+  <title>메이플스토리 장부 앱 v26</title>
   <style>
     :root {
       --bg: #020617;
@@ -1359,7 +1359,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v24</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v26</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -2166,10 +2166,10 @@
       setStatus("장비 현황 전체를 저장하는 중...");
 
       try {
-        const result = await apiGet({
+        const result = await apiPost({
           action: "saveEquipmentSnapshot",
-          equipment_json: JSON.stringify(equipmentItems),
-          extra_json: JSON.stringify(extraItems),
+          equipmentItems,
+          extraItems,
         });
 
         if (!result.ok) throw new Error(result.message || "장비 전체 저장 실패");
@@ -2288,8 +2288,10 @@
       const byMonth = {};
 
       records.forEach(record => {
-        const monthKey = dateString(record.created_at);
-        if (!monthKey) return;
+        const d = normalizeDate(record.created_at);
+        if (Number.isNaN(d.getTime())) return;
+
+        const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 
         if (!byMonth[monthKey]) {
           byMonth[monthKey] = {
