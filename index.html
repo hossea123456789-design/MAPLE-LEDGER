@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v16</title>
+  <title>메이플스토리 장부 앱 v20</title>
   <style>
     :root {
       --bg: #020617;
@@ -105,7 +105,7 @@
 
     .tabs {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(5, minmax(0, 1fr));
       gap: 6px;
       background: rgba(15, 23, 42, .92);
       padding: 6px;
@@ -684,6 +684,198 @@
       pointer-events: none;
     }
 
+    .equipment-toolbar {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: center;
+      margin: 14px 0;
+    }
+
+    .equipment-total {
+      border: 1px solid rgba(251,191,36,.25);
+      background: linear-gradient(135deg, rgba(251,191,36,.14), rgba(37,99,235,.10));
+      border-radius: 16px;
+      padding: 12px 14px;
+    }
+
+    .equipment-total .small {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .equipment-total .big {
+      margin-top: 4px;
+      color: var(--gold);
+      font-size: 24px;
+      font-weight: 950;
+    }
+
+    .equipment-cash-converter {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: end;
+      margin-top: 12px;
+    }
+
+    .equipment-cash-converter label {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      margin-bottom: 5px;
+    }
+
+    .equipment-cash-converter input {
+      padding: 9px 10px;
+      font-size: 13px;
+    }
+
+    .equipment-cash-result {
+      border: 1px solid var(--line);
+      background: #020617;
+      border-radius: 12px;
+      padding: 9px 10px;
+      min-width: 128px;
+    }
+
+    .equipment-cash-result .small {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .equipment-cash-result .value {
+      margin-top: 3px;
+      color: var(--ok);
+      font-size: 15px;
+      font-weight: 950;
+      white-space: nowrap;
+    }
+
+    .equipment-board {
+      display: grid;
+      grid-template-columns: repeat(7, 132px);
+      grid-template-rows: repeat(6, auto);
+      gap: 8px;
+      overflow-x: auto;
+      padding: 8px 0 10px;
+      align-items: stretch;
+    }
+
+    .character-panel {
+      grid-column: 3 / 6;
+      grid-row: 1 / 5;
+      border: 1px solid var(--line);
+      background:
+        radial-gradient(circle at center, rgba(96, 165, 250, .15), transparent 56%),
+        #020617;
+      border-radius: 20px;
+      padding: 12px;
+      min-height: 428px;
+      display: grid;
+      place-items: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .character-panel img {
+      width: min(100%, 310px);
+      max-height: 400px;
+      object-fit: contain;
+      image-rendering: auto;
+      border-radius: 18px;
+    }
+
+    .character-panel-label {
+      position: absolute;
+      left: 12px;
+      top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: .02em;
+    }
+
+    .equipment-slot {
+      width: 132px;
+      min-height: 132px;
+      border: 1px solid var(--line);
+      background: #020617;
+      border-radius: 16px;
+      padding: 8px;
+      display: grid;
+      gap: 7px;
+      align-content: start;
+    }
+
+    .equipment-slot.empty {
+      opacity: .42;
+      border-style: dashed;
+    }
+
+    .equipment-slot-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .equipment-slot-name {
+      color: var(--gold);
+      font-weight: 950;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .equipment-slot-order {
+      color: #64748b;
+      font-size: 10px;
+      font-weight: 900;
+    }
+
+    .equipment-name-input {
+      min-height: 50px;
+      resize: vertical;
+      line-height: 1.3;
+      font-size: 11.5px;
+      padding: 7px;
+    }
+
+    .equipment-price-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .equipment-price-row input {
+      padding: 8px;
+      font-size: 12px;
+    }
+
+    .equipment-price-unit {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .equipment-slot button {
+      padding: 7px 7px;
+      font-size: 11.5px;
+      border-radius: 10px;
+    }
+
+    .equipment-slot-saved {
+      color: var(--ok);
+      font-size: 11px;
+      font-weight: 800;
+      min-height: 14px;
+    }
+
     .summary-section {
       margin-top: 14px;
     }
@@ -783,8 +975,8 @@
       }
 
       .tab {
-        padding: 10px 3px;
-        font-size: 12px;
+        padding: 9px 2px;
+        font-size: 11px;
       }
 
       .summary-card.compact {
@@ -910,6 +1102,47 @@
       .summary-category, .summary-amount { font-size: 13px; }
       .summary-percent { font-size: 12px; }
 
+      .equipment-toolbar {
+        grid-template-columns: 1fr;
+      }
+
+      .equipment-cash-converter {
+        grid-template-columns: 1fr;
+      }
+
+      .equipment-cash-result {
+        min-width: 0;
+      }
+
+      .equipment-board {
+        grid-template-columns: repeat(7, 118px);
+        gap: 6px;
+      }
+
+      .character-panel {
+        min-height: 388px;
+        padding: 10px;
+      }
+
+      .character-panel img {
+        max-height: 360px;
+      }
+
+      .equipment-slot {
+        width: 118px;
+        min-height: 122px;
+        padding: 7px;
+      }
+
+      .equipment-slot-name {
+        font-size: 12px;
+      }
+
+      .equipment-name-input {
+        min-height: 48px;
+        font-size: 11.5px;
+      }
+
       .copy-row {
         flex-direction: column;
         align-items: stretch;
@@ -953,7 +1186,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v16</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v20</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -971,6 +1204,7 @@
     <div class="tabs">
       <button class="tab active" data-tab="ledger">장부 기록</button>
       <button class="tab" data-tab="purchase">메소 구매</button>
+      <button class="tab" data-tab="equipment">장비 현황</button>
       <button class="tab" data-tab="settlement">결산</button>
       <button class="tab" data-tab="settings">설정</button>
     </div>
@@ -1135,6 +1369,33 @@
       </div>
     </main>
 
+    <main id="equipmentTab" style="display:none">
+      <section class="card">
+        <h2>장비 현황</h2>
+        <p class="desc">장착 중인 장비명과 가격을 캐릭터 장비창 형태로 정리합니다. 가격 단위는 억 메소입니다. 장비명이 긴 경우 2줄 이상으로 입력할 수 있습니다.</p>
+
+        <div class="equipment-toolbar">
+          <div class="equipment-total">
+            <div class="small">장비 총 가치</div>
+            <div class="big" id="equipmentTotalValue">0억</div>
+            <div class="equipment-cash-converter">
+              <div>
+                <label>억당 현금</label>
+                <input id="equipmentCashPerEokInput" type="number" min="0" step="1" placeholder="예: 1600" />
+              </div>
+              <div class="equipment-cash-result">
+                <div class="small">현금 환산</div>
+                <div class="value" id="equipmentCashValue">0원</div>
+              </div>
+            </div>
+          </div>
+          <button class="secondary-button" id="refreshEquipmentButton" type="button">장비 새로고침</button>
+        </div>
+
+        <div class="equipment-board" id="equipmentBoard"></div>
+      </section>
+    </main>
+
     <main id="settlementTab" style="display:none">
       <section class="card">
         <h2>결산</h2>
@@ -1222,7 +1483,44 @@
     let settlementMode = "all";
     let isLoading = false;
 
-    const CACHE_KEY = "maple-ledger-cache-v11";
+    const CACHE_KEY = "maple-ledger-cache-v17";
+
+    const CHARACTER_IMAGE_SRC = "character.png";
+
+    const EQUIPMENT_SLOTS = [
+      ["ring_1", "반지", 1, 1],
+      ["face", "얼굴장식", 1, 2],
+      ["hat", "모자", 1, 6],
+      ["cape", "망토", 1, 7],
+
+      ["ring_2", "반지", 2, 1],
+      ["eye", "눈장식", 2, 2],
+      ["top", "상의", 2, 6],
+      ["glove", "장갑", 2, 7],
+
+      ["ring_3", "반지", 3, 1],
+      ["earring", "귀걸이", 3, 2],
+      ["bottom", "하의", 3, 6],
+      ["shoes", "신발", 3, 7],
+
+      ["ring_4", "반지", 4, 1],
+      ["pendant_1", "펜던트", 4, 2],
+      ["shoulder", "어깨", 4, 6],
+      ["medal", "훈장", 4, 7],
+
+      ["belt", "벨트", 5, 1],
+      ["pendant_2", "펜던트", 5, 2],
+      ["weapon", "무기", 5, 3],
+      ["secondary", "보조무기", 5, 4],
+      ["emblem", "엠블렘", 5, 5],
+      ["android", "안드로이드", 5, 6],
+      ["heart", "기계심장", 5, 7],
+
+      ["pocket", "포켓아이템", 6, 1],
+      ["badge", "뱃지", 6, 2],
+    ];
+
+    let equipmentItems = [];
 
     const $ = (id) => document.getElementById(id);
 
@@ -1396,6 +1694,139 @@
           <button class="delete" onclick="deleteMesoPurchase('${item.id}')">×</button>
         </div>
       `).join("");
+    }
+
+    function getEquipmentMap() {
+      const map = {};
+      equipmentItems.forEach(item => {
+        map[item.slot_id] = item;
+      });
+      return map;
+    }
+
+    function getEquipmentTotalValue() {
+      return equipmentItems.reduce((sum, item) => sum + Number(item.price_eok || 0), 0);
+    }
+
+    function updateEquipmentCashValue(totalOverride) {
+      const totalEok = typeof totalOverride === "number" ? totalOverride : getEquipmentTotalValue();
+      const cashPerEok = Number($("equipmentCashPerEokInput")?.value || 0);
+      const cashValue = totalEok * cashPerEok;
+
+      if ($("equipmentCashValue")) {
+        $("equipmentCashValue").textContent = formatWon(cashValue);
+      }
+    }
+
+    function renderEquipment() {
+      const board = $("equipmentBoard");
+      if (!board) return;
+
+      const equipmentMap = getEquipmentMap();
+      let total = 0;
+
+      const characterPanel = `
+        <div class="character-panel">
+          <div class="character-panel-label">CHARACTER</div>
+          <img src="${CHARACTER_IMAGE_SRC}" alt="캐릭터 이미지" />
+        </div>
+      `;
+
+      const slotHtml = EQUIPMENT_SLOTS.map(([slotId, slotName, row, col], index) => {
+        const item = equipmentMap[slotId] || {
+          slot_id: slotId,
+          slot_name: slotName,
+          item_name: "",
+          price_eok: "",
+        };
+
+        total += Number(item.price_eok || 0);
+
+        return `
+          <div class="equipment-slot ${item.item_name ? "" : "empty"}" data-slot-id="${slotId}" style="grid-row:${row}; grid-column:${col};">
+            <div class="equipment-slot-head">
+              <div class="equipment-slot-name">${escapeHtml(slotName)}</div>
+              <div class="equipment-slot-order">#${String(index + 1).padStart(2, "0")}</div>
+            </div>
+            <textarea class="equipment-name-input" data-equipment-name="${slotId}" placeholder="장비명">${escapeHtml(item.item_name || "")}</textarea>
+            <div class="equipment-price-row">
+              <input data-equipment-price="${slotId}" type="number" min="0" step="0.01" value="${item.price_eok || ""}" placeholder="가격" />
+              <span class="equipment-price-unit">억</span>
+            </div>
+            <button class="secondary-button" type="button" onclick="saveEquipmentItem('${slotId}', '${escapeAttr(slotName)}')">저장</button>
+            <div class="equipment-slot-saved" id="equipmentStatus-${slotId}"></div>
+          </div>
+        `;
+      }).join("");
+
+      $("equipmentTotalValue").textContent = formatEok(total);
+      updateEquipmentCashValue(total);
+      board.innerHTML = characterPanel + slotHtml;
+    }
+
+    function upsertEquipmentLocal(slotId, slotName, itemName, priceEok, pending = false) {
+      const existingIndex = equipmentItems.findIndex(item => item.slot_id === slotId);
+      const nextItem = {
+        slot_id: slotId,
+        slot_name: slotName,
+        item_name: itemName,
+        price_eok: Number(priceEok || 0),
+        updated_at: new Date().toISOString(),
+        pending,
+      };
+
+      if (existingIndex >= 0) {
+        equipmentItems = equipmentItems.map(item => item.slot_id === slotId ? { ...item, ...nextItem } : item);
+      } else {
+        equipmentItems = [...equipmentItems, nextItem];
+      }
+
+      return nextItem;
+    }
+
+    window.saveEquipmentItem = async function(slotId, slotName) {
+      const nameInput = document.querySelector(`[data-equipment-name="${slotId}"]`);
+      const priceInput = document.querySelector(`[data-equipment-price="${slotId}"]`);
+      const status = $(`equipmentStatus-${slotId}`);
+
+      const itemName = nameInput ? nameInput.value.trim() : "";
+      const priceEok = Number(priceInput ? priceInput.value : 0);
+
+      upsertEquipmentLocal(slotId, slotName, itemName, priceEok, true);
+      renderEquipment();
+      saveCache();
+      setStatus(`${slotName} 장비 정보를 저장하는 중...`);
+
+      try {
+        const result = await apiGet({
+          action: "updateEquipment",
+          slot_id: slotId,
+          slot_name: slotName,
+          item_name: itemName,
+          price_eok: priceEok,
+        });
+
+        if (!result.ok) throw new Error(result.message || "장비 저장 실패");
+
+        const saved = result.equipmentItem || {
+          slot_id: slotId,
+          slot_name: slotName,
+          item_name: itemName,
+          price_eok: priceEok,
+          updated_at: new Date().toISOString(),
+        };
+
+        upsertEquipmentLocal(saved.slot_id, saved.slot_name, saved.item_name, saved.price_eok, false);
+        renderEquipment();
+        saveCache();
+        setStatus(`${slotName} 장비 저장 완료`, "ok");
+
+        const nextStatus = $(`equipmentStatus-${slotId}`);
+        if (nextStatus) nextStatus.textContent = "저장 완료";
+      } catch (error) {
+        console.error(error);
+        setStatus(`${slotName} 장비 저장 실패`, "error");
+      }
     }
 
     function buildCategorySummary(type, month, mode = "all") {
@@ -1596,6 +2027,7 @@
       renderRecords();
       renderSettings();
       renderMesoPurchases();
+      renderEquipment();
       renderSettlement();
       calculatePurchase();
     }
@@ -1606,6 +2038,7 @@
           records,
           categories,
           mesoPurchases,
+          equipmentItems,
           savedAt: new Date().toISOString(),
         }));
       } catch (error) {
@@ -1622,6 +2055,7 @@
         records = cache.records || [];
         categories = cache.categories || DEFAULT_CATEGORIES;
         mesoPurchases = cache.mesoPurchases || [];
+        equipmentItems = cache.equipmentItems || [];
 
         renderAll();
 
@@ -1648,6 +2082,7 @@
         records = result.records || [];
         categories = result.categories || DEFAULT_CATEGORIES;
         mesoPurchases = result.mesoPurchases || [];
+        equipmentItems = result.equipmentItems || [];
 
         renderAll();
         saveCache();
@@ -1933,6 +2368,8 @@
     $("settlementAllButton").addEventListener("click", () => setSettlementMode("all"));
     $("settlementMonthButton").addEventListener("click", () => setSettlementMode("month"));
     $("refreshButton").addEventListener("click", loadData);
+    $("refreshEquipmentButton").addEventListener("click", loadData);
+    $("equipmentCashPerEokInput").addEventListener("input", () => updateEquipmentCashValue());
     $("addIncomeCategory").addEventListener("click", () => addCategory("income"));
     $("addExpenseCategory").addEventListener("click", () => addCategory("expense"));
 
@@ -2020,6 +2457,7 @@
         const tab = button.dataset.tab;
         $("ledgerTab").style.display = tab === "ledger" ? "block" : "none";
         $("purchaseTab").style.display = tab === "purchase" ? "block" : "none";
+        $("equipmentTab").style.display = tab === "equipment" ? "block" : "none";
         $("settlementTab").style.display = tab === "settlement" ? "block" : "none";
         $("settingsTab").style.display = tab === "settings" ? "block" : "none";
       });
