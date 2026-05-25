@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v30</title>
+  <title>메이플스토리 장부 앱 v31</title>
   <style>
     :root {
       --bg: #020617;
@@ -64,6 +64,66 @@
     textarea,
     button {
       touch-action: manipulation;
+    }
+
+    input,
+    select,
+    textarea,
+    button,
+    .tab,
+    .mode-button,
+    .category-row,
+    .equipment-slot,
+    .equipment-extra-row,
+    .record,
+    .summary-card,
+    .monthly-net-row {
+      transition:
+        background-color .14s ease,
+        border-color .14s ease,
+        box-shadow .14s ease,
+        transform .08s ease,
+        filter .14s ease;
+    }
+
+    button:active,
+    .tab:active,
+    .mode-button:active,
+    .category-row:active,
+    .equipment-slot:active,
+    .equipment-extra-row:active,
+    .record:active,
+    .summary-card:active,
+    .monthly-net-row:active {
+      filter: brightness(1.14);
+      transform: translateY(1px);
+      box-shadow:
+        0 0 0 2px rgba(96, 165, 250, .18),
+        inset 0 0 0 999px rgba(96, 165, 250, .08);
+    }
+
+    input:active,
+    select:active,
+    textarea:active {
+      box-shadow:
+        0 0 0 2px rgba(96, 165, 250, .26),
+        inset 0 0 0 999px rgba(96, 165, 250, .05);
+    }
+
+    button.pressed,
+    .tab.pressed,
+    .mode-button.pressed,
+    .category-row.pressed,
+    .equipment-slot.pressed,
+    .equipment-extra-row.pressed,
+    .record.pressed,
+    .summary-card.pressed,
+    .monthly-net-row.pressed {
+      filter: brightness(1.14);
+      transform: translateY(1px);
+      box-shadow:
+        0 0 0 2px rgba(96, 165, 250, .18),
+        inset 0 0 0 999px rgba(96, 165, 250, .08);
     }
 
     body {
@@ -1405,7 +1465,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v30</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v31</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -3193,6 +3253,36 @@
       $("copyNotice").textContent = "";
       setPurchaseMode("mesoToCash");
     });
+
+    function bindRoundedPressEffect() {
+      const selector = [
+        "button",
+        ".tab",
+        ".mode-button",
+        ".category-row",
+        ".equipment-slot",
+        ".equipment-extra-row",
+        ".record",
+        ".summary-card",
+        ".monthly-net-row"
+      ].join(",");
+
+      document.addEventListener("pointerdown", event => {
+        const target = event.target.closest(selector);
+        if (!target) return;
+        target.classList.add("pressed");
+      });
+
+      ["pointerup", "pointercancel", "pointerleave"].forEach(eventName => {
+        document.addEventListener(eventName, event => {
+          document.querySelectorAll(".pressed").forEach(element => {
+            element.classList.remove("pressed");
+          });
+        });
+      });
+    }
+
+    bindRoundedPressEffect();
 
     document.querySelectorAll(".tab").forEach(button => {
       button.addEventListener("click", () => {
