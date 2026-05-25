@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v29</title>
+  <title>메이플스토리 장부 앱 v30</title>
   <style>
     :root {
       --bg: #020617;
@@ -19,7 +19,52 @@
       --ok: #34d399;
     }
 
-    * { box-sizing: border-box; }
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    input,
+    select,
+    textarea,
+    button,
+    .tab,
+    .mode-button,
+    .category-row,
+    .equipment-slot,
+    .equipment-extra-row,
+    .record {
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus,
+    button:focus {
+      outline: none;
+    }
+
+    input:focus-visible,
+    select:focus-visible,
+    textarea:focus-visible,
+    button:focus-visible {
+      outline: none;
+      border-color: #60a5fa;
+      box-shadow: 0 0 0 2px rgba(96, 165, 250, .28);
+    }
+
+    button:focus-visible,
+    .tab:focus-visible,
+    .mode-button:focus-visible {
+      box-shadow: 0 0 0 2px rgba(96, 165, 250, .28);
+    }
+
+    input,
+    select,
+    textarea,
+    button {
+      touch-action: manipulation;
+    }
 
     body {
       margin: 0;
@@ -296,6 +341,7 @@
 
     input:focus, select:focus, textarea:focus {
       border-color: #60a5fa;
+      box-shadow: 0 0 0 2px rgba(96, 165, 250, .22);
     }
 
     .history {
@@ -1359,7 +1405,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v29</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v30</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
