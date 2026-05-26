@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v33</title>
+  <title>메이플스토리 장부 앱 v34</title>
   <style>
     :root {
       --bg: #020617;
@@ -1583,7 +1583,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v33</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v34</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -1962,8 +1962,6 @@
     </main>
 
   </div>
-
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script>
     const API_URL = "https://script.google.com/macros/s/AKfycby9srJlhi9sWjpMxJSpyhWgkNRP6RwOyVDRyPRsUDDSceflQgnFP9A7yXaGIXGuj9Ad0Q/exec";
 
@@ -3153,6 +3151,27 @@
       });
     }
 
+    function loadTesseractLibrary() {
+      if (window.Tesseract) return Promise.resolve(window.Tesseract);
+
+      return new Promise((resolve, reject) => {
+        const existing = document.querySelector('script[data-tesseract-loader="true"]');
+        if (existing) {
+          existing.addEventListener("load", () => resolve(window.Tesseract));
+          existing.addEventListener("error", reject);
+          return;
+        }
+
+        const script = document.createElement("script");
+        script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+        script.async = true;
+        script.dataset.tesseractLoader = "true";
+        script.onload = () => resolve(window.Tesseract);
+        script.onerror = () => reject(new Error("OCR 모듈 로드 실패"));
+        document.head.appendChild(script);
+      });
+    }
+
     async function runTesseractWithFallback(imageBlob, logger) {
       try {
         return await Tesseract.recognize(imageBlob, "kor+eng", {
@@ -3175,8 +3194,14 @@
       }
 
       if (!window.Tesseract) {
-        setStatus("OCR 모듈을 불러오지 못했습니다. 인터넷 연결 후 다시 시도하세요.", "error");
-        return;
+        setStatus("OCR 모듈을 불러오는 중...");
+        try {
+          await loadTesseractLibrary();
+        } catch (error) {
+          console.error(error);
+          setStatus("OCR 모듈을 불러오지 못했습니다. 인터넷 연결 후 다시 시도하세요.", "error");
+          return;
+        }
       }
 
       setStatus("OCR 인식 중... 메소 영역을 보정하고 있습니다.");
