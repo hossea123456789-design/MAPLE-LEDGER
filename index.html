@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v32</title>
+  <title>메이플스토리 장부 앱 v33</title>
   <style>
     :root {
       --bg: #020617;
@@ -1583,7 +1583,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v32</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v33</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -1658,6 +1658,7 @@
         </div>
 
         <div class="ocr-raw" id="ocrRawText"></div>
+        <div class="hint" id="ocrCandidateHint"></div>
       </div>
 
       <section class="grid3">
@@ -3016,53 +3017,155 @@
       return sign + parts.join(" ");
     }
 
-    function extractBestMesoCandidate(text) {
-      const matches = String(text || "").match(/[\d,]{5,}/g) || [];
-      const numbers = matches
-        .map(value => Number(value.replace(/,/g, "")))
-        .filter(value => Number.isFinite(value) && value > 0)
-        .sort((a, b) => b - a);
+    function normalizeMapleOcrToken(token, kind) {
+      let digits = String(token || "").replace(/[^\d]/g, "");
+      if (!digits) return "";
 
-      return numbers[0] || 0;
+      if (kind === "eok" && digits.length >= 4) {
+        const last = digits.slice(-1);
+        if (["8", "9", "6", "0"].includes(last)) digits = digits.slice(0, -1);
+      }
+
+      if (kind === "man" && digits.length >= 5) {
+        const last = digits.slice(-1);
+        if (["8", "9", "6", "0"].includes(last)) digits = digits.slice(0, -1);
+      }
+
+      return digits;
     }
 
-    function getLedgerBalanceMeso() {
-      const totalEok = records.reduce((sum, record) => {
-        const amount = Number(record.amount || 0);
-        return record.type === "income" ? sum + amount : sum - amount;
-      }, 0);
+    function parseMapleMesoFromOcrText(text) {
+      const raw = String(text || "").replace(/[，]/g, ",").replace(/\s+/g, " ");
 
-      return eokToMeso(totalEok);
+      const koreanMatch = raw.match(/([\d,]+)\s*억\s*([\d,]+)?\s*만?\s*([\d,]+)?/);
+      if (koreanMatch) {
+        const eok = Number(String(koreanMatch[1] || "0").replace(/,/g, ""));
+        const man = Number(String(koreanMatch[2] || "0").replace(/,/g, ""));
+        const rest = Number(String(koreanMatch[3] || "0").replace(/,/g, ""));
+        return {
+          meso: eok * 100000000 + man * 10000 + rest,
+          eok, man, rest,
+          source: "unit",
+          confidenceText: `${eok.toLocaleString("ko-KR")}억 ${man.toLocaleString("ko-KR")}만 ${rest.toLocaleString("ko-KR")}`
+        };
+      }
+
+      const tokens = raw.match(/[\d,]{1,}/g) || [];
+      const cleaned = tokens.map(t => t.replace(/,/g, "")).filter(Boolean);
+      let best = null;
+
+      for (let i = 0; i <= cleaned.length - 3; i++) {
+        const eokToken = normalizeMapleOcrToken(cleaned[i], "eok");
+        const manToken = normalizeMapleOcrToken(cleaned[i + 1], "man");
+        const restToken = normalizeMapleOcrToken(cleaned[i + 2], "rest");
+
+        const eok = Number(eokToken);
+        const man = Number(manToken);
+        const rest = Number(restToken);
+
+        if (!eok || Number.isNaN(eok) || Number.isNaN(man) || Number.isNaN(rest)) continue;
+        if (man < 0 || man > 9999) continue;
+        if (rest < 0 || rest > 9999) continue;
+
+        const score =
+          (eok >= 1 ? 10 : 0) +
+          (man >= 1000 && man <= 9999 ? 8 : 0) +
+          (rest >= 0 && rest <= 9999 ? 5 : 0) -
+          Math.abs(String(cleaned[i]).length - 3);
+
+        const candidate = {
+          meso: eok * 100000000 + man * 10000 + rest,
+          eok, man, rest, score,
+          source: "triple",
+          confidenceText: `${eok.toLocaleString("ko-KR")}억 ${man.toLocaleString("ko-KR")}만 ${rest.toLocaleString("ko-KR")}`
+        };
+
+        if (!best || candidate.score > best.score) best = candidate;
+      }
+
+      if (best) return best;
+
+      const numbers = cleaned.map(Number).filter(v => Number.isFinite(v) && v > 0).sort((a, b) => b - a);
+      if (numbers[0]) {
+        return {
+          meso: numbers[0],
+          source: "single",
+          confidenceText: formatMesoKorean(numbers[0])
+        };
+      }
+
+      return { meso: 0, source: "none", confidenceText: "" };
     }
 
-    function updateReconcilePreview() {
-      const actualMeso = parseMesoInput($("actualMesoRawInput")?.value || "");
-      const ledgerMeso = getLedgerBalanceMeso();
-      const diff = actualMeso - ledgerMeso;
+    async function preprocessImageForMesoOcr(file) {
+      return new Promise((resolve, reject) => {
+        const image = new Image();
+        const url = URL.createObjectURL(file);
 
-      if ($("actualMesoPretty")) $("actualMesoPretty").textContent = actualMeso ? formatMesoKorean(actualMeso) : "0메소";
-      if ($("ledgerBalancePretty")) $("ledgerBalancePretty").textContent = formatMesoKorean(ledgerMeso);
-      if ($("reconcileDiffPretty")) {
-        $("reconcileDiffPretty").textContent = `${diff >= 0 ? "+" : ""}${formatMesoKorean(diff)}`;
-        $("reconcileDiffPretty").className = `value ${diff >= 0 ? "orange" : "blue"}`;
-      }
-      if ($("reconcileDirection")) {
-        $("reconcileDirection").textContent = diff > 0 ? "수입 보정" : diff < 0 ? "지출 보정" : "보정 없음";
-        $("reconcileDirection").className = `value ${diff > 0 ? "orange" : diff < 0 ? "blue" : ""}`;
-      }
+        image.onload = () => {
+          try {
+            const sourceW = image.naturalWidth || image.width;
+            const sourceH = image.naturalHeight || image.height;
+
+            const cropX = Math.floor(sourceW * 0.24);
+            const cropY = Math.floor(sourceH * 0.50);
+            const cropW = Math.floor(sourceW * 0.74);
+            const cropH = Math.floor(sourceH * 0.38);
+
+            const scale = 3;
+            const canvas = document.createElement("canvas");
+            canvas.width = cropW * scale;
+            canvas.height = cropH * scale;
+
+            const ctx = canvas.getContext("2d");
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(image, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+
+            for (let i = 0; i < data.length; i += 4) {
+              const r = data[i], g = data[i + 1], b = data[i + 2];
+              const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+              const value = gray > 145 ? 255 : 0;
+              data[i] = value;
+              data[i + 1] = value;
+              data[i + 2] = value;
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+            canvas.toBlob(blob => {
+              URL.revokeObjectURL(url);
+              resolve(blob || file);
+            }, "image/png");
+          } catch (error) {
+            URL.revokeObjectURL(url);
+            reject(error);
+          }
+        };
+
+        image.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error("이미지를 불러오지 못했습니다."));
+        };
+
+        image.src = url;
+      });
     }
 
-    function setOcrImage(file) {
-      if (!file) return;
-
-      currentOcrImage = file;
-      const url = URL.createObjectURL(file);
-      const preview = $("ocrPreview");
-      if (preview) {
-        preview.src = url;
-        preview.style.display = "block";
+    async function runTesseractWithFallback(imageBlob, logger) {
+      try {
+        return await Tesseract.recognize(imageBlob, "kor+eng", {
+          logger,
+          tessedit_char_whitelist: "0123456789억만, "
+        });
+      } catch (error) {
+        console.warn("kor+eng OCR failed, fallback to eng", error);
+        return await Tesseract.recognize(imageBlob, "eng", {
+          logger,
+          tessedit_char_whitelist: "0123456789, "
+        });
       }
-      setStatus("OCR 이미지가 준비되었습니다.");
     }
 
     async function runOcr() {
@@ -3076,26 +3179,33 @@
         return;
       }
 
-      setStatus("OCR 인식 중... 숫자를 찾고 있습니다.");
+      setStatus("OCR 인식 중... 메소 영역을 보정하고 있습니다.");
 
       try {
-        const result = await Tesseract.recognize(currentOcrImage, "eng", {
-          logger: message => {
-            if (message.status === "recognizing text" && typeof message.progress === "number") {
-              setStatus(`OCR 인식 중... ${Math.round(message.progress * 100)}%`);
-            }
+        const processedImage = await preprocessImageForMesoOcr(currentOcrImage);
+        const result = await runTesseractWithFallback(processedImage, message => {
+          if (message.status === "recognizing text" && typeof message.progress === "number") {
+            setStatus(`OCR 인식 중... ${Math.round(message.progress * 100)}%`);
           }
         });
 
         currentOcrRawText = result?.data?.text || "";
-        const candidate = extractBestMesoCandidate(currentOcrRawText);
+        const parsed = parseMapleMesoFromOcrText(currentOcrRawText);
 
         if ($("ocrRawText")) $("ocrRawText").textContent = currentOcrRawText || "OCR 결과가 없습니다.";
 
-        if (candidate) {
-          $("actualMesoRawInput").value = String(candidate);
+        if (parsed.meso) {
+          $("actualMesoRawInput").value = String(parsed.meso);
           updateReconcilePreview();
-          setStatus(`OCR 후보 인식 완료: ${formatMesoKorean(candidate)}`, "ok");
+
+          if ($("ocrCandidateHint")) {
+            const caution = parsed.source === "single"
+              ? "단일 숫자 후보라 정확도가 낮습니다. 실제 값과 반드시 비교하세요."
+              : "억/만/나머지 후보를 조합했습니다. 실제 값과 비교 후 확정하세요.";
+            $("ocrCandidateHint").textContent = `인식 후보: ${parsed.confidenceText} · ${caution}`;
+          }
+
+          setStatus(`OCR 후보 인식 완료: ${parsed.confidenceText}`, "ok");
         } else {
           setStatus("OCR에서 메소 숫자 후보를 찾지 못했습니다. 직접 입력해주세요.", "error");
         }
