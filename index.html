@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v34</title>
+  <title>메이플스토리 장부 앱 v41</title>
   <style>
     :root {
       --bg: #020617;
@@ -523,6 +523,31 @@
       font-size: 14px;
     }
 
+
+
+    .reconcile-card.folded .reconcile-body {
+      display: none;
+    }
+
+    .reconcile-card.folded {
+      padding-bottom: 14px;
+    }
+
+    .reconcile-toggle {
+      min-width: 92px;
+      white-space: nowrap;
+    }
+
+    .reconcile-head {
+      cursor: pointer;
+    }
+
+    .reconcile-head-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-shrink: 0;
+    }
 
     .reconcile-card {
       background: rgba(15, 23, 42, .96);
@@ -1583,7 +1608,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v34</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v41</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -1607,15 +1632,19 @@
     </div>
 
     <main id="ledgerTab">
-      <div class="reconcile-card">
-        <div class="reconcile-head">
+      <div class="reconcile-card folded" id="reconcileCard">
+        <div class="reconcile-head" id="reconcileHead">
           <div>
             <h2 class="reconcile-title">실제 메소 맞추기</h2>
-            <p class="desc">인게임 메소 스크린샷을 붙여넣거나 업로드하면 OCR로 숫자 후보를 추출합니다. 최종 보정은 확인 후 직접 기록합니다.</p>
+            <p class="desc">인게임 창고 메소와 장부 잔액을 맞출 때만 펼쳐서 사용합니다.</p>
           </div>
-          <button class="secondary-button" id="clearOcrButton" type="button">초기화</button>
+          <div class="reconcile-head-actions">
+            <button class="secondary-button reconcile-toggle" id="toggleReconcileButton" type="button">펼치기</button>
+            <button class="secondary-button" id="clearOcrButton" type="button">초기화</button>
+          </div>
         </div>
 
+        <div class="reconcile-body" id="reconcileBody">
         <div class="ocr-drop-zone" id="ocrDropZone">
           스크린샷을 여기에 붙여넣기 Ctrl+V 하거나 이미지를 선택하세요.
           <div class="hint">OCR은 숫자 후보만 추출합니다. 저장 전 인식값을 꼭 확인하세요.</div>
@@ -1659,6 +1688,7 @@
 
         <div class="ocr-raw" id="ocrRawText"></div>
         <div class="hint" id="ocrCandidateHint"></div>
+        </div>
       </div>
 
       <section class="grid3">
@@ -2028,6 +2058,26 @@
 
     const $ = (id) => document.getElementById(id);
 
+    window.addEventListener("error", (event) => {
+      const status = document.getElementById("syncStatus");
+      const message = event?.message || "알 수 없는 오류";
+      if (status) {
+        status.textContent = `앱 오류: ${message}`;
+        status.className = "error";
+      }
+      console.error("Global error:", event.error || event.message);
+    });
+
+    window.addEventListener("unhandledrejection", (event) => {
+      const status = document.getElementById("syncStatus");
+      const message = event?.reason?.message || String(event?.reason || "알 수 없는 오류");
+      if (status) {
+        status.textContent = `앱 처리 오류: ${message}`;
+        status.className = "error";
+      }
+      console.error("Unhandled rejection:", event.reason);
+    });
+
     const today = new Date();
     const monthValue = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
     $("monthFilter").value = monthValue;
@@ -2048,40 +2098,64 @@
       if ($("addExpenseCategory")) $("addExpenseCategory").disabled = value;
     }
 
-    async function apiGet(params) {
+    async function apiGet(params, timeoutMs = 20000) {
       const url = new URL(API_URL);
       Object.entries(params).forEach(([key, value]) => {
         if (value !== undefined && value !== null) url.searchParams.set(key, value);
       });
 
-      const res = await fetch(url.toString(), { method: "GET" });
-      if (!res.ok) throw new Error("API 요청 실패");
-      return await res.json();
-    }
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-    function formatEok(value) {
-      const abs = Math.abs(Number(value || 0));
-      const formatted = Number.isInteger(abs)
-        ? abs.toLocaleString("ko-KR")
-        : abs.toLocaleString("ko-KR", { maximumFractionDigits: 2 });
-      return `${formatted}억`;
-    }
+      try {
+        const response = await fetch(url.toString(), {
+          signal: controller.signal,
+          cache: "no-store",
+        });
 
-    function formatEokPrecise(value) {
-      const abs = Math.abs(Number(value || 0));
-      const formatted = abs.toLocaleString("ko-KR", {
-        maximumFractionDigits: 2,
-      });
-      return `${formatted}억`;
-    }
-
-    function formatWon(value) {
-      return `${Math.round(Number(value || 0)).toLocaleString("ko-KR")}원`;
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+      } catch (error) {
+        if (error.name === "AbortError") {
+          throw new Error("구글 시트 응답 시간이 초과되었습니다.");
+        }
+        throw error;
+      } finally {
+        clearTimeout(timer);
+      }
     }
 
     function normalizeDate(value) {
       if (!value) return new Date();
       return new Date(value);
+    }
+
+    function formatEok(value, digits = 2) {
+      const numberValue = Number(value || 0);
+
+      if (!Number.isFinite(numberValue)) return "0억";
+
+      const absValue = Math.abs(numberValue);
+      const sign = numberValue < 0 ? "-" : "";
+
+      if (absValue === 0) return "0억";
+
+      const fixed = absValue % 1 === 0
+        ? absValue.toLocaleString("ko-KR", { maximumFractionDigits: 0 })
+        : absValue.toLocaleString("ko-KR", {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: digits,
+          });
+
+      return `${sign}${fixed}억`;
+    }
+
+    function formatWon(value) {
+      const numberValue = Math.round(Number(value || 0));
+
+      if (!Number.isFinite(numberValue) || numberValue === 0) return "0원";
+
+      return `${numberValue.toLocaleString("ko-KR")}원`;
     }
 
     function formatDateTime(value) {
@@ -2972,6 +3046,42 @@
         .replaceAll('"', "&quot;");
     }
 
+    function setReconcileFolded(isFolded) {
+      const card = $("reconcileCard");
+      const button = $("toggleReconcileButton");
+
+      if (!card || !button) return;
+
+      card.classList.toggle("folded", Boolean(isFolded));
+      button.textContent = isFolded ? "펼치기" : "접기";
+
+      try {
+        localStorage.setItem("maple-ledger-reconcile-folded", isFolded ? "true" : "false");
+      } catch (error) {
+        console.warn("OCR 접힘 상태 저장 실패", error);
+      }
+    }
+
+    function toggleReconcileFold() {
+      const card = $("reconcileCard");
+      if (!card) return;
+
+      setReconcileFolded(!card.classList.contains("folded"));
+    }
+
+    function restoreReconcileFoldState() {
+      let shouldFold = true;
+
+      try {
+        const saved = localStorage.getItem("maple-ledger-reconcile-folded");
+        if (saved === "false") shouldFold = false;
+      } catch (error) {
+        console.warn("OCR 접힘 상태 불러오기 실패", error);
+      }
+
+      setReconcileFolded(shouldFold);
+    }
+
     function eokToMeso(value) {
       return Math.round(Number(value || 0) * 100000000);
     }
@@ -3015,25 +3125,63 @@
       return sign + parts.join(" ");
     }
 
-    function normalizeMapleOcrToken(token, kind) {
-      let digits = String(token || "").replace(/[^\d]/g, "");
-      if (!digits) return "";
+    function getOcrNumberVariants(token, kind) {
+      const digits = String(token || "").replace(/[^\d]/g, "");
+      if (!digits) return [];
 
-      if (kind === "eok" && digits.length >= 4) {
-        const last = digits.slice(-1);
-        if (["8", "9", "6", "0"].includes(last)) digits = digits.slice(0, -1);
+      const variants = new Set();
+      variants.add(digits);
+
+      // OCR often reads Korean unit glyphs as an extra trailing digit.
+      // Examples:
+      // 573억 -> 5739
+      // 3693만 -> 36938
+      // 4303만 -> 43037
+      if (digits.length >= 4) {
+        variants.add(digits.slice(0, -1));
       }
 
       if (kind === "man" && digits.length >= 5) {
-        const last = digits.slice(-1);
-        if (["8", "9", "6", "0"].includes(last)) digits = digits.slice(0, -1);
+        variants.add(digits.slice(0, 4));
       }
 
-      return digits;
+      if (kind === "eok" && digits.length >= 4) {
+        variants.add(digits.slice(0, 3));
+      }
+
+      return [...variants]
+        .map(value => Number(value))
+        .filter(value => Number.isFinite(value) && value >= 0);
+    }
+
+    function scoreMesoTriple(eok, man, rest, rawEok, rawMan, rawRest) {
+      if (!eok || eok < 0) return -9999;
+      if (man < 0 || man > 9999) return -9999;
+      if (rest < 0 || rest > 9999) return -9999;
+
+      let score = 0;
+
+      score += eok >= 1 ? 20 : 0;
+      score += man >= 1000 && man <= 9999 ? 16 : 8;
+      score += rest >= 0 && rest <= 9999 ? 10 : 0;
+
+      if (String(eok).length <= 4) score += 4;
+      if (String(man).length === 4) score += 6;
+      if (String(rest).length <= 4) score += 4;
+
+      const rawManNumber = Number(String(rawMan || "").replace(/[^\d]/g, ""));
+      if (rawManNumber > 9999 && man <= 9999) score += 12;
+
+      const rawEokNumber = Number(String(rawEok || "").replace(/[^\d]/g, ""));
+      if (rawEokNumber >= 1000 && eok < 1000) score += 6;
+
+      return score;
     }
 
     function parseMapleMesoFromOcrText(text) {
-      const raw = String(text || "").replace(/[，]/g, ",").replace(/\s+/g, " ");
+      const raw = String(text || "")
+        .replace(/[，]/g, ",")
+        .replace(/\s+/g, " ");
 
       const koreanMatch = raw.match(/([\d,]+)\s*억\s*([\d,]+)?\s*만?\s*([\d,]+)?/);
       if (koreanMatch) {
@@ -3042,7 +3190,9 @@
         const rest = Number(String(koreanMatch[3] || "0").replace(/,/g, ""));
         return {
           meso: eok * 100000000 + man * 10000 + rest,
-          eok, man, rest,
+          eok,
+          man,
+          rest,
           source: "unit",
           confidenceText: `${eok.toLocaleString("ko-KR")}억 ${man.toLocaleString("ko-KR")}만 ${rest.toLocaleString("ko-KR")}`
         };
@@ -3053,37 +3203,46 @@
       let best = null;
 
       for (let i = 0; i <= cleaned.length - 3; i++) {
-        const eokToken = normalizeMapleOcrToken(cleaned[i], "eok");
-        const manToken = normalizeMapleOcrToken(cleaned[i + 1], "man");
-        const restToken = normalizeMapleOcrToken(cleaned[i + 2], "rest");
+        const rawEok = cleaned[i];
+        const rawMan = cleaned[i + 1];
+        const rawRest = cleaned[i + 2];
 
-        const eok = Number(eokToken);
-        const man = Number(manToken);
-        const rest = Number(restToken);
+        const eokVariants = getOcrNumberVariants(rawEok, "eok");
+        const manVariants = getOcrNumberVariants(rawMan, "man");
+        const restVariants = getOcrNumberVariants(rawRest, "rest");
 
-        if (!eok || Number.isNaN(eok) || Number.isNaN(man) || Number.isNaN(rest)) continue;
-        if (man < 0 || man > 9999) continue;
-        if (rest < 0 || rest > 9999) continue;
+        eokVariants.forEach(eok => {
+          manVariants.forEach(man => {
+            restVariants.forEach(rest => {
+              const score = scoreMesoTriple(eok, man, rest, rawEok, rawMan, rawRest);
+              if (score <= -9999) return;
 
-        const score =
-          (eok >= 1 ? 10 : 0) +
-          (man >= 1000 && man <= 9999 ? 8 : 0) +
-          (rest >= 0 && rest <= 9999 ? 5 : 0) -
-          Math.abs(String(cleaned[i]).length - 3);
+              const candidate = {
+                meso: eok * 100000000 + man * 10000 + rest,
+                eok,
+                man,
+                rest,
+                score,
+                source: "triple",
+                rawTokens: `${rawEok} / ${rawMan} / ${rawRest}`,
+                confidenceText: `${eok.toLocaleString("ko-KR")}억 ${man.toLocaleString("ko-KR")}만 ${rest.toLocaleString("ko-KR")}`
+              };
 
-        const candidate = {
-          meso: eok * 100000000 + man * 10000 + rest,
-          eok, man, rest, score,
-          source: "triple",
-          confidenceText: `${eok.toLocaleString("ko-KR")}억 ${man.toLocaleString("ko-KR")}만 ${rest.toLocaleString("ko-KR")}`
-        };
-
-        if (!best || candidate.score > best.score) best = candidate;
+              if (!best || candidate.score > best.score) best = candidate;
+            });
+          });
+        });
       }
 
       if (best) return best;
 
-      const numbers = cleaned.map(Number).filter(v => Number.isFinite(v) && v > 0).sort((a, b) => b - a);
+      // If triple parsing fails, do not trust a small standalone number as meso.
+      // This prevents cases like "43037" being interpreted as 4만 메소.
+      const numbers = cleaned
+        .map(value => Number(value))
+        .filter(value => Number.isFinite(value) && value >= 100000000)
+        .sort((a, b) => b - a);
+
       if (numbers[0]) {
         return {
           meso: numbers[0],
@@ -3092,7 +3251,11 @@
         };
       }
 
-      return { meso: 0, source: "none", confidenceText: "" };
+      return {
+        meso: 0,
+        source: "none",
+        confidenceText: "",
+      };
     }
 
     async function preprocessImageForMesoOcr(file) {
@@ -3187,6 +3350,78 @@
       }
     }
 
+    function setOcrImage(file) {
+      if (!file) {
+        setStatus("이미지 파일을 찾지 못했습니다.", "error");
+        return;
+      }
+
+      if (!file.type || !file.type.startsWith("image/")) {
+        setStatus("이미지 파일만 사용할 수 있습니다.", "error");
+        return;
+      }
+
+      currentOcrImage = file;
+      currentOcrRawText = "";
+      setReconcileFolded(false);
+
+      const preview = $("ocrPreview");
+      if (preview) {
+        try {
+          if (preview.dataset.objectUrl) {
+            URL.revokeObjectURL(preview.dataset.objectUrl);
+          }
+
+          const url = URL.createObjectURL(file);
+          preview.src = url;
+          preview.dataset.objectUrl = url;
+          preview.style.display = "block";
+        } catch (error) {
+          console.warn("미리보기 생성 실패", error);
+        }
+      }
+
+      const raw = $("ocrRawText");
+      if (raw) raw.textContent = "";
+
+      const hint = $("ocrCandidateHint");
+      if (hint) hint.textContent = "";
+
+      setStatus("OCR 이미지가 준비되었습니다. [OCR 실행]을 눌러주세요.", "ok");
+    }
+
+    async function copyToClipboard(value) {
+      const text = String(value || "");
+
+      if (!text) {
+        setStatus("복사할 내용이 없습니다.", "error");
+        return false;
+      }
+
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const temp = document.createElement("textarea");
+          temp.value = text;
+          temp.setAttribute("readonly", "");
+          temp.style.position = "fixed";
+          temp.style.left = "-9999px";
+          document.body.appendChild(temp);
+          temp.select();
+          document.execCommand("copy");
+          document.body.removeChild(temp);
+        }
+
+        setStatus("복사되었습니다.", "ok");
+        return true;
+      } catch (error) {
+        console.error(error);
+        setStatus("복사 실패: 직접 선택해서 복사해주세요.", "error");
+        return false;
+      }
+    }
+
     async function runOcr() {
       if (!currentOcrImage) {
         setStatus("OCR을 실행할 이미지를 먼저 붙여넣거나 선택하세요.", "error");
@@ -3227,7 +3462,8 @@
             const caution = parsed.source === "single"
               ? "단일 숫자 후보라 정확도가 낮습니다. 실제 값과 반드시 비교하세요."
               : "억/만/나머지 후보를 조합했습니다. 실제 값과 비교 후 확정하세요.";
-            $("ocrCandidateHint").textContent = `인식 후보: ${parsed.confidenceText} · ${caution}`;
+            const rawTokenText = parsed.rawTokens ? ` · 원문 후보: ${parsed.rawTokens}` : "";
+            $("ocrCandidateHint").textContent = `인식 후보: ${parsed.confidenceText}${rawTokenText} · ${caution}`;
           }
 
           setStatus(`OCR 후보 인식 완료: ${parsed.confidenceText}`, "ok");
@@ -3237,6 +3473,42 @@
       } catch (error) {
         console.error(error);
         setStatus("OCR 인식 실패: 직접 입력해주세요.", "error");
+      }
+    }
+
+    function getLedgerBalanceMeso() {
+      const totalEok = records.reduce((sum, record) => {
+        const amount = Number(record.amount || 0);
+        return record.type === "income" ? sum + amount : sum - amount;
+      }, 0);
+
+      return eokToMeso(totalEok);
+    }
+
+    function updateReconcilePreview() {
+      const input = $("actualMesoRawInput");
+      if (!input) return;
+
+      const actualMeso = parseMesoInput(input.value || "");
+      const ledgerMeso = getLedgerBalanceMeso();
+      const diff = actualMeso - ledgerMeso;
+
+      const actualEl = $("actualMesoPretty");
+      const ledgerEl = $("ledgerBalancePretty");
+      const diffEl = $("reconcileDiffPretty");
+      const directionEl = $("reconcileDirection");
+
+      if (actualEl) actualEl.textContent = actualMeso ? formatMesoKorean(actualMeso) : "0메소";
+      if (ledgerEl) ledgerEl.textContent = formatMesoKorean(ledgerMeso);
+
+      if (diffEl) {
+        diffEl.textContent = `${diff >= 0 ? "+" : ""}${formatMesoKorean(diff)}`;
+        diffEl.className = `value ${diff >= 0 ? "orange" : "blue"}`;
+      }
+
+      if (directionEl) {
+        directionEl.textContent = diff > 0 ? "수입 보정" : diff < 0 ? "지출 보정" : "보정 없음";
+        directionEl.className = `value ${diff > 0 ? "orange" : diff < 0 ? "blue" : ""}`;
       }
     }
 
@@ -3318,17 +3590,26 @@
       setStatus("OCR 보정 입력을 초기화했습니다.", "ok");
     }
 
+    function safeRenderStep(name, fn) {
+      try {
+        fn();
+      } catch (error) {
+        console.error(`Render error in ${name}:`, error);
+        setStatus(`화면 갱신 오류(${name}): ${error.message || error}`, "error");
+      }
+    }
+
     function renderAll() {
-      renderCategorySelect();
-      renderSummary();
-      renderRecords();
-      renderSettings();
-      renderMesoPurchases();
-      updateReconcilePreview();
-      renderEquipment();
-      renderExtraItems();
-      renderSettlement();
-      calculatePurchase();
+      safeRenderStep("category", renderCategorySelect);
+      safeRenderStep("summary", renderSummary);
+      safeRenderStep("records", renderRecords);
+      safeRenderStep("settings", renderSettings);
+      safeRenderStep("mesoPurchases", renderMesoPurchases);
+      safeRenderStep("reconcile", updateReconcilePreview);
+      safeRenderStep("equipment", renderEquipment);
+      safeRenderStep("extraItems", renderExtraItems);
+      safeRenderStep("settlement", renderSettlement);
+      safeRenderStep("purchase", calculatePurchase);
     }
 
     function saveCache() {
@@ -3662,10 +3943,26 @@
       }
     }
 
+    $("toggleReconcileButton").addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleReconcileFold();
+    });
+
+    $("reconcileHead").addEventListener("click", event => {
+      const isButton = event.target.closest("button");
+      if (isButton) return;
+      toggleReconcileFold();
+    });
+
     $("actualMesoRawInput").addEventListener("input", updateReconcilePreview);
     $("ocrImageInput").addEventListener("change", event => {
-      const file = event.target.files && event.target.files[0];
-      if (file) setOcrImage(file);
+      try {
+        const file = event.target.files && event.target.files[0];
+        if (file) setOcrImage(file);
+      } catch (error) {
+        console.error(error);
+        setStatus("이미지 선택 처리 실패", "error");
+      }
     });
     $("runOcrButton").addEventListener("click", runOcr);
     $("addReconcileRecordButton").addEventListener("click", addReconcileRecord);
@@ -3673,20 +3970,26 @@
     $("copyOcrRawButton").addEventListener("click", () => copyToClipboard(currentOcrRawText || ""));
 
     document.addEventListener("paste", event => {
-      const items = event.clipboardData?.items || [];
-      for (const item of items) {
-        if (item.type && item.type.startsWith("image/")) {
-          const file = item.getAsFile();
-          if (file) {
-            setOcrImage(file);
-            const zone = $("ocrDropZone");
-            if (zone) {
-              zone.classList.add("active");
-              setTimeout(() => zone.classList.remove("active"), 450);
+      try {
+        const items = event.clipboardData?.items || [];
+        for (const item of items) {
+          if (item.type && item.type.startsWith("image/")) {
+            const file = item.getAsFile();
+            if (file) {
+              event.preventDefault();
+              setOcrImage(file);
+              const zone = $("ocrDropZone");
+              if (zone) {
+                zone.classList.add("active");
+                setTimeout(() => zone.classList.remove("active"), 450);
+              }
+              break;
             }
-            break;
           }
         }
+      } catch (error) {
+        console.error(error);
+        setStatus("붙여넣기 처리 실패: 이미지 파일 선택으로 다시 시도해주세요.", "error");
       }
     });
 
@@ -3842,9 +4145,16 @@
       });
     });
 
-    const hasCache = loadCache();
-    if (!hasCache) renderAll();
-    loadData({ silent: hasCache });
+    try {
+      restoreReconcileFoldState();
+      setStatus("구글 시트 연결 시작...");
+      const hasCache = loadCache();
+      if (!hasCache) renderAll();
+      loadData({ silent: hasCache });
+    } catch (error) {
+      console.error("Boot error:", error);
+      setStatus("앱 시작 실패: " + (error.message || ""), "error");
+    }
   </script>
 </body>
 </html>
