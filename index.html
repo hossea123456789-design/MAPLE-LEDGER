@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v31</title>
+  <title>메이플스토리 장부 앱 v32</title>
   <style>
     :root {
       --bg: #020617;
@@ -521,6 +521,116 @@
       text-align: center;
       color: var(--muted);
       font-size: 14px;
+    }
+
+
+    .reconcile-card {
+      background: rgba(15, 23, 42, .96);
+      border: 1px solid #334155;
+      box-shadow: 0 14px 34px rgba(0,0,0,.18);
+      border-radius: 22px;
+      padding: 14px;
+      margin-bottom: 18px;
+    }
+
+    .reconcile-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .reconcile-title {
+      font-size: 17px;
+      font-weight: 950;
+      margin: 0;
+    }
+
+    .ocr-drop-zone {
+      border: 1px dashed #475569;
+      border-radius: 16px;
+      background: #020617;
+      padding: 14px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+      margin-bottom: 12px;
+    }
+
+    .ocr-drop-zone.active {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 2px rgba(96, 165, 250, .18);
+      color: var(--text);
+    }
+
+    .ocr-preview {
+      display: none;
+      width: 100%;
+      max-height: 180px;
+      object-fit: contain;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      margin-bottom: 12px;
+      background: #020617;
+    }
+
+    .reconcile-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .reconcile-result {
+      border: 1px solid var(--line);
+      background: #020617;
+      border-radius: 14px;
+      padding: 11px 12px;
+    }
+
+    .reconcile-result .small {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 850;
+      white-space: nowrap;
+    }
+
+    .reconcile-result .value {
+      margin-top: 5px;
+      font-size: 15px;
+      font-weight: 950;
+      white-space: nowrap;
+    }
+
+    .reconcile-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+
+    .ocr-candidate-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: end;
+      margin-top: 10px;
+    }
+
+    .ocr-raw {
+      color: #64748b;
+      font-size: 11px;
+      line-height: 1.4;
+      max-height: 54px;
+      overflow: auto;
+      margin-top: 8px;
+      word-break: break-all;
+    }
+
+    .equipment-cash-converter.single {
+      grid-template-columns: minmax(0, 1fr);
     }
 
     .input-bar {
@@ -1357,6 +1467,14 @@
         grid-template-columns: 1fr;
       }
 
+      .reconcile-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .ocr-candidate-row {
+        grid-template-columns: 1fr;
+      }
+
       .summary-row {
         grid-template-columns: minmax(70px, 1fr) minmax(74px, auto) 44px;
         padding: 9px 10px;
@@ -1465,7 +1583,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v31</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v32</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -1489,6 +1607,59 @@
     </div>
 
     <main id="ledgerTab">
+      <div class="reconcile-card">
+        <div class="reconcile-head">
+          <div>
+            <h2 class="reconcile-title">실제 메소 맞추기</h2>
+            <p class="desc">인게임 메소 스크린샷을 붙여넣거나 업로드하면 OCR로 숫자 후보를 추출합니다. 최종 보정은 확인 후 직접 기록합니다.</p>
+          </div>
+          <button class="secondary-button" id="clearOcrButton" type="button">초기화</button>
+        </div>
+
+        <div class="ocr-drop-zone" id="ocrDropZone">
+          스크린샷을 여기에 붙여넣기 Ctrl+V 하거나 이미지를 선택하세요.
+          <div class="hint">OCR은 숫자 후보만 추출합니다. 저장 전 인식값을 꼭 확인하세요.</div>
+        </div>
+
+        <input id="ocrImageInput" type="file" accept="image/*" />
+        <img id="ocrPreview" class="ocr-preview" alt="메소 스크린샷 미리보기" />
+
+        <div class="ocr-candidate-row">
+          <div class="field">
+            <label>OCR 인식/직접 입력 메소</label>
+            <input id="actualMesoRawInput" inputmode="numeric" placeholder="예: 5473210000 또는 54억7321만" />
+            <div class="hint">쉼표가 있어도 되고, 직접 억/만 단위로 입력해도 됩니다.</div>
+          </div>
+          <button class="secondary-button" id="runOcrButton" type="button">OCR 실행</button>
+        </div>
+
+        <div class="reconcile-grid">
+          <div class="reconcile-result">
+            <div class="small">실제 메소</div>
+            <div class="value gold" id="actualMesoPretty">0메소</div>
+          </div>
+          <div class="reconcile-result">
+            <div class="small">장부 잔액</div>
+            <div class="value" id="ledgerBalancePretty">0메소</div>
+          </div>
+          <div class="reconcile-result">
+            <div class="small">차액</div>
+            <div class="value" id="reconcileDiffPretty">0메소</div>
+          </div>
+          <div class="reconcile-result">
+            <div class="small">보정 방향</div>
+            <div class="value" id="reconcileDirection">-</div>
+          </div>
+        </div>
+
+        <div class="reconcile-actions">
+          <button class="primary-button" id="addReconcileRecordButton" type="button">잔액 보정 기록 추가</button>
+          <button class="secondary-button" id="copyOcrRawButton" type="button">OCR 원문 복사</button>
+        </div>
+
+        <div class="ocr-raw" id="ocrRawText"></div>
+      </div>
+
       <section class="grid3">
         <div class="card summary-card compact">
           <div class="card-label">월 수입</div>
@@ -1677,14 +1848,10 @@
               </div>
             </div>
 
-            <div class="equipment-cash-converter">
+            <div class="equipment-cash-converter single">
               <div>
                 <label>억당 현금</label>
                 <input id="equipmentCashPerEokInput" type="number" min="0" step="1" placeholder="예: 1600" />
-              </div>
-              <div class="equipment-cash-result">
-                <div class="small">현재 환산 기준</div>
-                <div class="value" id="equipmentCashValue">0원</div>
               </div>
             </div>
           </div>
@@ -1795,12 +1962,13 @@
 
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script>
     const API_URL = "https://script.google.com/macros/s/AKfycby9srJlhi9sWjpMxJSpyhWgkNRP6RwOyVDRyPRsUDDSceflQgnFP9A7yXaGIXGuj9Ad0Q/exec";
 
     const DEFAULT_CATEGORIES = {
       income: ["사냥", "장비 판매", "조각 판매", "보스 결정", "특수 아이템 판매", "메소 구매"],
-      expense: ["장비 구매", "소비템 구매", "강화"]
+      expense: ["장비 구매", "소비템 구매", "강화", "잔액 보정"]
     };
 
     let records = [];
@@ -1814,6 +1982,8 @@
     let globalCashPerEok = 0;
     let cashPerEokSaveTimer = null;
     let isSyncingCashPerEok = false;
+    let currentOcrImage = null;
+    let currentOcrRawText = "";
 
     const CACHE_KEY = "maple-ledger-cache-v17";
 
@@ -2803,12 +2973,223 @@
         .replaceAll('"', "&quot;");
     }
 
+    function eokToMeso(value) {
+      return Math.round(Number(value || 0) * 100000000);
+    }
+
+    function mesoToEok(value) {
+      return Number(value || 0) / 100000000;
+    }
+
+    function parseMesoInput(value) {
+      const text = String(value || "").trim();
+      if (!text) return 0;
+
+      const normalized = text.replace(/,/g, "").replace(/\s/g, "");
+
+      let total = 0;
+      const eokMatch = normalized.match(/([\d.]+)억/);
+      const manMatch = normalized.match(/([\d.]+)만/);
+
+      if (eokMatch || manMatch) {
+        if (eokMatch) total += Number(eokMatch[1]) * 100000000;
+        if (manMatch) total += Number(manMatch[1]) * 10000;
+        return Math.round(total);
+      }
+
+      const digits = normalized.replace(/[^\d]/g, "");
+      return digits ? Number(digits) : 0;
+    }
+
+    function formatMesoKorean(meso) {
+      const raw = Math.round(Number(meso || 0));
+      const sign = raw < 0 ? "-" : "";
+      const value = Math.abs(raw);
+      const eok = Math.floor(value / 100000000);
+      const man = Math.floor((value % 100000000) / 10000);
+      const rest = value % 10000;
+
+      const parts = [];
+      if (eok) parts.push(`${eok.toLocaleString("ko-KR")}억`);
+      if (man) parts.push(`${man.toLocaleString("ko-KR")}만`);
+      if (!eok && !man) parts.push(`${rest.toLocaleString("ko-KR")}메소`);
+      return sign + parts.join(" ");
+    }
+
+    function extractBestMesoCandidate(text) {
+      const matches = String(text || "").match(/[\d,]{5,}/g) || [];
+      const numbers = matches
+        .map(value => Number(value.replace(/,/g, "")))
+        .filter(value => Number.isFinite(value) && value > 0)
+        .sort((a, b) => b - a);
+
+      return numbers[0] || 0;
+    }
+
+    function getLedgerBalanceMeso() {
+      const totalEok = records.reduce((sum, record) => {
+        const amount = Number(record.amount || 0);
+        return record.type === "income" ? sum + amount : sum - amount;
+      }, 0);
+
+      return eokToMeso(totalEok);
+    }
+
+    function updateReconcilePreview() {
+      const actualMeso = parseMesoInput($("actualMesoRawInput")?.value || "");
+      const ledgerMeso = getLedgerBalanceMeso();
+      const diff = actualMeso - ledgerMeso;
+
+      if ($("actualMesoPretty")) $("actualMesoPretty").textContent = actualMeso ? formatMesoKorean(actualMeso) : "0메소";
+      if ($("ledgerBalancePretty")) $("ledgerBalancePretty").textContent = formatMesoKorean(ledgerMeso);
+      if ($("reconcileDiffPretty")) {
+        $("reconcileDiffPretty").textContent = `${diff >= 0 ? "+" : ""}${formatMesoKorean(diff)}`;
+        $("reconcileDiffPretty").className = `value ${diff >= 0 ? "orange" : "blue"}`;
+      }
+      if ($("reconcileDirection")) {
+        $("reconcileDirection").textContent = diff > 0 ? "수입 보정" : diff < 0 ? "지출 보정" : "보정 없음";
+        $("reconcileDirection").className = `value ${diff > 0 ? "orange" : diff < 0 ? "blue" : ""}`;
+      }
+    }
+
+    function setOcrImage(file) {
+      if (!file) return;
+
+      currentOcrImage = file;
+      const url = URL.createObjectURL(file);
+      const preview = $("ocrPreview");
+      if (preview) {
+        preview.src = url;
+        preview.style.display = "block";
+      }
+      setStatus("OCR 이미지가 준비되었습니다.");
+    }
+
+    async function runOcr() {
+      if (!currentOcrImage) {
+        setStatus("OCR을 실행할 이미지를 먼저 붙여넣거나 선택하세요.", "error");
+        return;
+      }
+
+      if (!window.Tesseract) {
+        setStatus("OCR 모듈을 불러오지 못했습니다. 인터넷 연결 후 다시 시도하세요.", "error");
+        return;
+      }
+
+      setStatus("OCR 인식 중... 숫자를 찾고 있습니다.");
+
+      try {
+        const result = await Tesseract.recognize(currentOcrImage, "eng", {
+          logger: message => {
+            if (message.status === "recognizing text" && typeof message.progress === "number") {
+              setStatus(`OCR 인식 중... ${Math.round(message.progress * 100)}%`);
+            }
+          }
+        });
+
+        currentOcrRawText = result?.data?.text || "";
+        const candidate = extractBestMesoCandidate(currentOcrRawText);
+
+        if ($("ocrRawText")) $("ocrRawText").textContent = currentOcrRawText || "OCR 결과가 없습니다.";
+
+        if (candidate) {
+          $("actualMesoRawInput").value = String(candidate);
+          updateReconcilePreview();
+          setStatus(`OCR 후보 인식 완료: ${formatMesoKorean(candidate)}`, "ok");
+        } else {
+          setStatus("OCR에서 메소 숫자 후보를 찾지 못했습니다. 직접 입력해주세요.", "error");
+        }
+      } catch (error) {
+        console.error(error);
+        setStatus("OCR 인식 실패: 직접 입력해주세요.", "error");
+      }
+    }
+
+    async function addReconcileRecord() {
+      const actualMeso = parseMesoInput($("actualMesoRawInput")?.value || "");
+      const ledgerMeso = getLedgerBalanceMeso();
+      const diffMeso = actualMeso - ledgerMeso;
+
+      if (!actualMeso) {
+        setStatus("실제 메소 값을 먼저 입력하거나 OCR로 인식해주세요.", "error");
+        return;
+      }
+
+      if (diffMeso === 0) {
+        setStatus("장부 잔액과 실제 메소가 같아서 보정할 차액이 없습니다.", "ok");
+        return;
+      }
+
+      const type = diffMeso > 0 ? "income" : "expense";
+      const amountEok = Math.abs(mesoToEok(diffMeso));
+      const comment = `실제 메소 ${formatMesoKorean(actualMeso)} 기준 보정 / 장부 ${formatMesoKorean(ledgerMeso)}`;
+
+      const tempId = `temp-reconcile-${Date.now()}`;
+      const tempRecord = {
+        id: tempId,
+        created_at: new Date().toISOString(),
+        type,
+        amount: amountEok,
+        category: "잔액 보정",
+        comment,
+        pending: true,
+      };
+
+      records = [tempRecord, ...records];
+      renderAll();
+      saveCache();
+      setStatus("잔액 보정 기록을 화면에 먼저 반영했습니다. 구글 시트 저장 중...");
+
+      try {
+        const result = await apiGet({
+          action: "addRecord",
+          type,
+          amount: amountEok,
+          category: "잔액 보정",
+          comment,
+        });
+
+        if (!result.ok) throw new Error(result.message || "잔액 보정 저장 실패");
+
+        const savedRecord = result.record || {
+          ...tempRecord,
+          id: result.id || tempId,
+          pending: false,
+        };
+
+        records = records.map(record => record.id === tempId ? { ...savedRecord, pending: false } : record);
+        renderAll();
+        saveCache();
+        setStatus(`잔액 보정 기록 완료: ${diffMeso > 0 ? "+" : ""}${formatMesoKorean(diffMeso)}`, "ok");
+      } catch (error) {
+        console.error(error);
+        records = records.filter(record => record.id !== tempId);
+        renderAll();
+        saveCache();
+        setStatus("잔액 보정 기록 저장 실패: 입력값을 되돌렸습니다.", "error");
+      }
+    }
+
+    function clearOcrReconcile() {
+      currentOcrImage = null;
+      currentOcrRawText = "";
+      if ($("actualMesoRawInput")) $("actualMesoRawInput").value = "";
+      if ($("ocrRawText")) $("ocrRawText").textContent = "";
+      if ($("ocrPreview")) {
+        $("ocrPreview").removeAttribute("src");
+        $("ocrPreview").style.display = "none";
+      }
+      updateReconcilePreview();
+      setStatus("OCR 보정 입력을 초기화했습니다.", "ok");
+    }
+
     function renderAll() {
       renderCategorySelect();
       renderSummary();
       renderRecords();
       renderSettings();
       renderMesoPurchases();
+      updateReconcilePreview();
       renderEquipment();
       renderExtraItems();
       renderSettlement();
@@ -3145,6 +3526,34 @@
         setStatus("카테고리 삭제 실패: 삭제를 되돌렸습니다.", "error");
       }
     }
+
+    $("actualMesoRawInput").addEventListener("input", updateReconcilePreview);
+    $("ocrImageInput").addEventListener("change", event => {
+      const file = event.target.files && event.target.files[0];
+      if (file) setOcrImage(file);
+    });
+    $("runOcrButton").addEventListener("click", runOcr);
+    $("addReconcileRecordButton").addEventListener("click", addReconcileRecord);
+    $("clearOcrButton").addEventListener("click", clearOcrReconcile);
+    $("copyOcrRawButton").addEventListener("click", () => copyToClipboard(currentOcrRawText || ""));
+
+    document.addEventListener("paste", event => {
+      const items = event.clipboardData?.items || [];
+      for (const item of items) {
+        if (item.type && item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (file) {
+            setOcrImage(file);
+            const zone = $("ocrDropZone");
+            if (zone) {
+              zone.classList.add("active");
+              setTimeout(() => zone.classList.remove("active"), 450);
+            }
+            break;
+          }
+        }
+      }
+    });
 
     $("incomeToggle").addEventListener("click", () => {
       currentType = "income";
