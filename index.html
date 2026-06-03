@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v44</title>
+  <title>메이플스토리 장부 앱 v45</title>
   <style>
     :root {
       --bg: #020617;
@@ -1635,7 +1635,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v44</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v45</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -3257,19 +3257,34 @@
         .replace(/[，]/g, ",")
         .replace(/\s+/g, " ");
 
-      const koreanMatch = raw.match(/([\d,]+)\s*억\s*([\d,]+)?\s*만?\s*([\d,]+)?/);
-      if (koreanMatch) {
-        const eok = Number(String(koreanMatch[1] || "0").replace(/,/g, ""));
-        const man = Number(String(koreanMatch[2] || "0").replace(/,/g, ""));
-        const rest = Number(String(koreanMatch[3] || "0").replace(/,/g, ""));
-        return {
-          meso: eok * 100000000 + man * 10000 + rest,
-          eok,
-          man,
-          rest,
-          source: "unit",
-          confidenceText: `${eok.toLocaleString("ko-KR")}억 ${man.toLocaleString("ko-KR")}만 ${rest.toLocaleString("ko-KR")}`
-        };
+      const makeResult = (eok, man, rest, source, rawTokens = "") => ({
+        meso: eok * 100000000 + man * 10000 + rest,
+        eok,
+        man,
+        rest,
+        source,
+        rawTokens,
+        confidenceText: `${eok.toLocaleString("ko-KR")}억 ${man.toLocaleString("ko-KR")}만 ${rest.toLocaleString("ko-KR")}`
+      });
+
+      // Unit-aware parse. Do not stop at "732억" only.
+      const eokMatch = raw.match(/([\d,]{1,6})\s*억/);
+      const manMatch = raw.match(/([\d,]{1,6})\s*만/);
+
+      if (eokMatch && manMatch) {
+        const eok = Number(String(eokMatch[1] || "0").replace(/,/g, ""));
+        const man = Number(String(manMatch[1] || "0").replace(/,/g, ""));
+
+        let rest = 0;
+        const afterMan = raw.slice(raw.indexOf(manMatch[0]) + manMatch[0].length);
+        const restMatch = afterMan.match(/([\d,]{1,4})/);
+        if (restMatch) {
+          rest = Number(String(restMatch[1] || "0").replace(/,/g, ""));
+        }
+
+        if (eok > 0 && man >= 0 && man <= 9999 && rest >= 0 && rest <= 9999) {
+          return makeResult(eok, man, rest, "unit", `${eokMatch[0]} / ${manMatch[0]} / ${restMatch ? restMatch[1] : "0"}`);
+        }
       }
 
       const tokens = raw.match(/[\d,]{1,}/g) || [];
@@ -3292,14 +3307,8 @@
               if (score <= -9999) return;
 
               const candidate = {
-                meso: eok * 100000000 + man * 10000 + rest,
-                eok,
-                man,
-                rest,
-                score,
-                source: "triple",
-                rawTokens: `${rawEok} / ${rawMan} / ${rawRest}`,
-                confidenceText: `${eok.toLocaleString("ko-KR")}억 ${man.toLocaleString("ko-KR")}만 ${rest.toLocaleString("ko-KR")}`
+                ...makeResult(eok, man, rest, "triple", `${rawEok} / ${rawMan} / ${rawRest}`),
+                score
               };
 
               if (!best || candidate.score > best.score) best = candidate;
@@ -3310,23 +3319,29 @@
 
       if (best) return best;
 
+      // If "억" is recognized but "만" is not, keep it as a low-confidence candidate only
+      // when there are no better numeric triples.
+      if (eokMatch) {
+        const eok = Number(String(eokMatch[1] || "0").replace(/,/g, ""));
+        if (eok > 0) return makeResult(eok, 0, 0, "unit_partial", eokMatch[0]);
+      }
+
       // If triple parsing fails, do not trust a small standalone number as meso.
-      // This prevents cases like "43037" being interpreted as 4만 메소.
       const numbers = cleaned
         .map(value => Number(value))
         .filter(value => Number.isFinite(value) && value >= 100000000)
         .sort((a, b) => b - a);
 
       if (numbers[0]) {
-        return {
-          meso: numbers[0],
-          source: "single",
-          confidenceText: formatMesoKorean(numbers[0])
-        };
+        const parts = splitMesoToUnitParts(numbers[0]);
+        return makeResult(parts.eok, parts.man, parts.rest, "single", String(numbers[0]));
       }
 
       return {
         meso: 0,
+        eok: 0,
+        man: 0,
+        rest: 0,
         source: "none",
         confidenceText: "",
       };
@@ -3564,7 +3579,9 @@
           if ($("ocrCandidateHint")) {
             const caution = parsed.source === "single"
               ? "단일 숫자 후보라 정확도가 낮습니다. 실제 값과 반드시 비교하세요."
-              : "억/만/나머지 후보를 조합했습니다. 실제 값과 비교 후 확정하세요.";
+              : parsed.source === "unit_partial"
+                ? "억 단위만 인식되었습니다. 만/원 단위는 반드시 직접 확인해 입력하세요."
+                : "억/만/나머지 후보를 조합했습니다. 실제 값과 비교 후 확정하세요.";
             const rawTokenText = parsed.rawTokens ? ` · 원문 후보: ${parsed.rawTokens}` : "";
             $("ocrCandidateHint").textContent = `인식 후보: ${parsed.confidenceText}${rawTokenText} · ${caution}`;
           }
