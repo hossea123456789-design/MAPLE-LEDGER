@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v41</title>
+  <title>메이플스토리 장부 앱 v44</title>
   <style>
     :root {
       --bg: #020617;
@@ -524,31 +524,6 @@
     }
 
 
-
-    .reconcile-card.folded .reconcile-body {
-      display: none;
-    }
-
-    .reconcile-card.folded {
-      padding-bottom: 14px;
-    }
-
-    .reconcile-toggle {
-      min-width: 92px;
-      white-space: nowrap;
-    }
-
-    .reconcile-head {
-      cursor: pointer;
-    }
-
-    .reconcile-head-actions {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      flex-shrink: 0;
-    }
-
     .reconcile-card {
       background: rgba(15, 23, 42, .96);
       border: 1px solid #334155;
@@ -634,6 +609,32 @@
       gap: 8px;
       margin-top: 12px;
       flex-wrap: wrap;
+    }
+
+
+    .meso-unit-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .meso-unit-field {
+      position: relative;
+    }
+
+    .meso-unit-field input {
+      padding-right: 42px;
+    }
+
+    .meso-unit-label {
+      position: absolute;
+      right: 12px;
+      bottom: 13px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 900;
+      pointer-events: none;
     }
 
     .ocr-candidate-row {
@@ -1496,7 +1497,33 @@
         grid-template-columns: 1fr 1fr;
       }
 
-      .ocr-candidate-row {
+  
+    .meso-unit-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .meso-unit-field {
+      position: relative;
+    }
+
+    .meso-unit-field input {
+      padding-right: 42px;
+    }
+
+    .meso-unit-label {
+      position: absolute;
+      right: 12px;
+      bottom: 13px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 900;
+      pointer-events: none;
+    }
+
+    .ocr-candidate-row {
         grid-template-columns: 1fr;
       }
 
@@ -1608,7 +1635,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v41</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v44</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -1632,19 +1659,15 @@
     </div>
 
     <main id="ledgerTab">
-      <div class="reconcile-card folded" id="reconcileCard">
-        <div class="reconcile-head" id="reconcileHead">
+      <div class="reconcile-card" id="reconcileCard">
+        <div class="reconcile-head">
           <div>
             <h2 class="reconcile-title">실제 메소 맞추기</h2>
-            <p class="desc">인게임 창고 메소와 장부 잔액을 맞출 때만 펼쳐서 사용합니다.</p>
+            <p class="desc">인게임 메소 스크린샷을 붙여넣거나 업로드하면 OCR로 숫자 후보를 추출합니다. 최종 보정은 확인 후 직접 기록합니다.</p>
           </div>
-          <div class="reconcile-head-actions">
-            <button class="secondary-button reconcile-toggle" id="toggleReconcileButton" type="button">펼치기</button>
-            <button class="secondary-button" id="clearOcrButton" type="button">초기화</button>
-          </div>
+          <button class="secondary-button" id="clearOcrButton" type="button">초기화</button>
         </div>
 
-        <div class="reconcile-body" id="reconcileBody">
         <div class="ocr-drop-zone" id="ocrDropZone">
           스크린샷을 여기에 붙여넣기 Ctrl+V 하거나 이미지를 선택하세요.
           <div class="hint">OCR은 숫자 후보만 추출합니다. 저장 전 인식값을 꼭 확인하세요.</div>
@@ -1657,9 +1680,27 @@
           <div class="field">
             <label>OCR 인식/직접 입력 메소</label>
             <input id="actualMesoRawInput" inputmode="numeric" placeholder="예: 5473210000 또는 54억7321만" />
-            <div class="hint">쉼표가 있어도 되고, 직접 억/만 단위로 입력해도 됩니다.</div>
+            <div class="hint">OCR 원문 후보입니다. 실제값은 아래 억/만/원 칸에서 최종 확인하세요.</div>
           </div>
           <button class="secondary-button" id="runOcrButton" type="button">OCR 실행</button>
+        </div>
+
+        <div class="meso-unit-grid">
+          <div class="field meso-unit-field">
+            <label>억</label>
+            <input id="actualMesoEokInput" inputmode="numeric" placeholder="예: 574" />
+            <span class="meso-unit-label">억</span>
+          </div>
+          <div class="field meso-unit-field">
+            <label>만</label>
+            <input id="actualMesoManInput" inputmode="numeric" placeholder="예: 4303" />
+            <span class="meso-unit-label">만</span>
+          </div>
+          <div class="field meso-unit-field">
+            <label>원 단위</label>
+            <input id="actualMesoRestInput" inputmode="numeric" placeholder="예: 8474" />
+            <span class="meso-unit-label">메소</span>
+          </div>
         </div>
 
         <div class="reconcile-grid">
@@ -1688,7 +1729,6 @@
 
         <div class="ocr-raw" id="ocrRawText"></div>
         <div class="hint" id="ocrCandidateHint"></div>
-        </div>
       </div>
 
       <section class="grid3">
@@ -3046,42 +3086,6 @@
         .replaceAll('"', "&quot;");
     }
 
-    function setReconcileFolded(isFolded) {
-      const card = $("reconcileCard");
-      const button = $("toggleReconcileButton");
-
-      if (!card || !button) return;
-
-      card.classList.toggle("folded", Boolean(isFolded));
-      button.textContent = isFolded ? "펼치기" : "접기";
-
-      try {
-        localStorage.setItem("maple-ledger-reconcile-folded", isFolded ? "true" : "false");
-      } catch (error) {
-        console.warn("OCR 접힘 상태 저장 실패", error);
-      }
-    }
-
-    function toggleReconcileFold() {
-      const card = $("reconcileCard");
-      if (!card) return;
-
-      setReconcileFolded(!card.classList.contains("folded"));
-    }
-
-    function restoreReconcileFoldState() {
-      let shouldFold = true;
-
-      try {
-        const saved = localStorage.getItem("maple-ledger-reconcile-folded");
-        if (saved === "false") shouldFold = false;
-      } catch (error) {
-        console.warn("OCR 접힘 상태 불러오기 실패", error);
-      }
-
-      setReconcileFolded(shouldFold);
-    }
-
     function eokToMeso(value) {
       return Math.round(Number(value || 0) * 100000000);
     }
@@ -3108,6 +3112,76 @@
 
       const digits = normalized.replace(/[^\d]/g, "");
       return digits ? Number(digits) : 0;
+    }
+
+    function parseUnitNumber(value) {
+      const digits = String(value || "").replace(/[^\d]/g, "");
+      return digits ? Number(digits) : 0;
+    }
+
+    function getActualMesoFromUnitInputs() {
+      const eokInput = $("actualMesoEokInput");
+      const manInput = $("actualMesoManInput");
+      const restInput = $("actualMesoRestInput");
+
+      const hasUnitInput = Boolean(
+        (eokInput && eokInput.value.trim()) ||
+        (manInput && manInput.value.trim()) ||
+        (restInput && restInput.value.trim())
+      );
+
+      if (!hasUnitInput) return null;
+
+      const eok = parseUnitNumber(eokInput?.value || "");
+      const man = parseUnitNumber(manInput?.value || "");
+      const rest = parseUnitNumber(restInput?.value || "");
+
+      return eok * 100000000 + man * 10000 + rest;
+    }
+
+    function splitMesoToUnitParts(meso) {
+      const value = Math.max(0, Math.round(Number(meso || 0)));
+      return {
+        eok: Math.floor(value / 100000000),
+        man: Math.floor((value % 100000000) / 10000),
+        rest: value % 10000,
+      };
+    }
+
+    function setUnitInputsFromParts(parts) {
+      if (!parts) return;
+
+      if ($("actualMesoEokInput")) $("actualMesoEokInput").value = parts.eok ? String(parts.eok) : "";
+      if ($("actualMesoManInput")) $("actualMesoManInput").value = parts.man ? String(parts.man) : "";
+      if ($("actualMesoRestInput")) $("actualMesoRestInput").value = parts.rest ? String(parts.rest) : "";
+
+      const meso = (Number(parts.eok || 0) * 100000000) + (Number(parts.man || 0) * 10000) + Number(parts.rest || 0);
+      setActualMesoRawDisplayFromMeso(meso);
+    }
+
+    function setUnitInputsFromMeso(meso) {
+      setUnitInputsFromParts(splitMesoToUnitParts(meso));
+    }
+
+    function setActualMesoRawDisplayFromMeso(meso) {
+      const input = $("actualMesoRawInput");
+      if (!input) return;
+
+      const numeric = Math.max(0, Math.round(Number(meso || 0)));
+      input.value = numeric ? formatMesoKorean(numeric) : "";
+    }
+
+    function clearUnitInputs() {
+      if ($("actualMesoEokInput")) $("actualMesoEokInput").value = "";
+      if ($("actualMesoManInput")) $("actualMesoManInput").value = "";
+      if ($("actualMesoRestInput")) $("actualMesoRestInput").value = "";
+    }
+
+    function getActualMesoInputValue() {
+      const unitMeso = getActualMesoFromUnitInputs();
+      if (unitMeso !== null) return unitMeso;
+
+      return parseMesoInput($("actualMesoRawInput")?.value || "");
     }
 
     function formatMesoKorean(meso) {
@@ -3267,13 +3341,30 @@
           try {
             const sourceW = image.naturalWidth || image.width;
             const sourceH = image.naturalHeight || image.height;
+            const aspectRatio = sourceW / Math.max(1, sourceH);
 
-            const cropX = Math.floor(sourceW * 0.24);
-            const cropY = Math.floor(sourceH * 0.50);
-            const cropW = Math.floor(sourceW * 0.74);
-            const cropH = Math.floor(sourceH * 0.38);
+            // If the image is already a meso-strip crop, do NOT crop it again.
+            // Full screenshots are usually tall/normal ratio; cropped meso strips are wide.
+            const isAlreadyMesoStrip = aspectRatio >= 2.2 || sourceH <= 360;
 
-            const scale = 3;
+            let cropX;
+            let cropY;
+            let cropW;
+            let cropH;
+
+            if (isAlreadyMesoStrip) {
+              cropX = 0;
+              cropY = 0;
+              cropW = sourceW;
+              cropH = sourceH;
+            } else {
+              cropX = Math.floor(sourceW * 0.24);
+              cropY = Math.floor(sourceH * 0.50);
+              cropW = Math.floor(sourceW * 0.74);
+              cropH = Math.floor(sourceH * 0.38);
+            }
+
+            const scale = isAlreadyMesoStrip ? 4 : 3;
             const canvas = document.createElement("canvas");
             canvas.width = cropW * scale;
             canvas.height = cropH * scale;
@@ -3286,15 +3377,23 @@
             const data = imageData.data;
 
             for (let i = 0; i < data.length; i += 4) {
-              const r = data[i], g = data[i + 1], b = data[i + 2];
+              const r = data[i];
+              const g = data[i + 1];
+              const b = data[i + 2];
+
               const gray = 0.299 * r + 0.587 * g + 0.114 * b;
-              const value = gray > 145 ? 255 : 0;
+
+              // Keep contrast, but use a softer threshold for cropped UI strips.
+              const threshold = isAlreadyMesoStrip ? 125 : 145;
+              const value = gray > threshold ? 255 : 0;
+
               data[i] = value;
               data[i + 1] = value;
               data[i + 2] = value;
             }
 
             ctx.putImageData(imageData, 0, 0);
+
             canvas.toBlob(blob => {
               URL.revokeObjectURL(url);
               resolve(blob || file);
@@ -3363,7 +3462,6 @@
 
       currentOcrImage = file;
       currentOcrRawText = "";
-      setReconcileFolded(false);
 
       const preview = $("ocrPreview");
       if (preview) {
@@ -3455,7 +3553,12 @@
         if ($("ocrRawText")) $("ocrRawText").textContent = currentOcrRawText || "OCR 결과가 없습니다.";
 
         if (parsed.meso) {
-          $("actualMesoRawInput").value = String(parsed.meso);
+          setActualMesoRawDisplayFromMeso(parsed.meso);
+          if (parsed.eok !== undefined && parsed.man !== undefined && parsed.rest !== undefined) {
+            setUnitInputsFromParts(parsed);
+          } else {
+            setUnitInputsFromMeso(parsed.meso);
+          }
           updateReconcilePreview();
 
           if ($("ocrCandidateHint")) {
@@ -3468,7 +3571,7 @@
 
           setStatus(`OCR 후보 인식 완료: ${parsed.confidenceText}`, "ok");
         } else {
-          setStatus("OCR에서 메소 숫자 후보를 찾지 못했습니다. 직접 입력해주세요.", "error");
+          setStatus("OCR에서 메소 숫자 후보를 찾지 못했습니다. 이미 잘린 메소 영역 이미지는 v43에서 보정했지만, 실패 시 아래 억/만/원 칸에 실제 표기대로 입력해주세요.", "error");
         }
       } catch (error) {
         console.error(error);
@@ -3489,7 +3592,7 @@
       const input = $("actualMesoRawInput");
       if (!input) return;
 
-      const actualMeso = parseMesoInput(input.value || "");
+      const actualMeso = getActualMesoInputValue();
       const ledgerMeso = getLedgerBalanceMeso();
       const diff = actualMeso - ledgerMeso;
 
@@ -3513,7 +3616,7 @@
     }
 
     async function addReconcileRecord() {
-      const actualMeso = parseMesoInput($("actualMesoRawInput")?.value || "");
+      const actualMeso = getActualMesoInputValue();
       const ledgerMeso = getLedgerBalanceMeso();
       const diffMeso = actualMeso - ledgerMeso;
 
@@ -3581,6 +3684,7 @@
       currentOcrImage = null;
       currentOcrRawText = "";
       if ($("actualMesoRawInput")) $("actualMesoRawInput").value = "";
+      clearUnitInputs();
       if ($("ocrRawText")) $("ocrRawText").textContent = "";
       if ($("ocrPreview")) {
         $("ocrPreview").removeAttribute("src");
@@ -3943,18 +4047,44 @@
       }
     }
 
-    $("toggleReconcileButton").addEventListener("click", (event) => {
-      event.stopPropagation();
-      toggleReconcileFold();
+    $("actualMesoRawInput").addEventListener("input", () => {
+      const rawValue = $("actualMesoRawInput").value.trim();
+      const parsed = parseMesoInput(rawValue);
+
+      if (parsed) {
+        setUnitInputsFromMeso(parsed);
+      } else if (!rawValue) {
+        clearUnitInputs();
+      }
+
+      updateReconcilePreview();
     });
 
-    $("reconcileHead").addEventListener("click", event => {
-      const isButton = event.target.closest("button");
-      if (isButton) return;
-      toggleReconcileFold();
+    $("actualMesoRawInput").addEventListener("blur", () => {
+      const rawValue = $("actualMesoRawInput").value.trim();
+      const parsed = parseMesoInput(rawValue);
+
+      if (parsed) {
+        setUnitInputsFromMeso(parsed);
+        setActualMesoRawDisplayFromMeso(parsed);
+      } else if (!rawValue) {
+        clearUnitInputs();
+      }
     });
 
-    $("actualMesoRawInput").addEventListener("input", updateReconcilePreview);
+    ["actualMesoEokInput", "actualMesoManInput", "actualMesoRestInput"].forEach(id => {
+      const input = $(id);
+      if (!input) return;
+      input.addEventListener("input", () => {
+        const meso = getActualMesoFromUnitInputs();
+        if (meso !== null) {
+          setActualMesoRawDisplayFromMeso(meso);
+        } else {
+          if ($("actualMesoRawInput")) $("actualMesoRawInput").value = "";
+        }
+        updateReconcilePreview();
+      });
+    });
     $("ocrImageInput").addEventListener("change", event => {
       try {
         const file = event.target.files && event.target.files[0];
@@ -4146,7 +4276,6 @@
     });
 
     try {
-      restoreReconcileFoldState();
       setStatus("구글 시트 연결 시작...");
       const hasCache = loadCache();
       if (!hasCache) renderAll();
