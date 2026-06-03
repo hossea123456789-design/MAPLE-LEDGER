@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v45</title>
+  <title>메이플스토리 장부 앱 v46</title>
   <style>
     :root {
       --bg: #020617;
@@ -1635,7 +1635,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v45</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v46</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -3168,7 +3168,7 @@
       if (!input) return;
 
       const numeric = Math.max(0, Math.round(Number(meso || 0)));
-      input.value = numeric ? formatMesoKorean(numeric) : "";
+      input.value = numeric ? formatMesoKoreanForInput(numeric) : "";
     }
 
     function clearUnitInputs() {
@@ -3184,9 +3184,30 @@
       return parseMesoInput($("actualMesoRawInput")?.value || "");
     }
 
-    function formatMesoKorean(meso) {
+    function formatMesoKorean(meso, options = {}) {
       const raw = Math.round(Number(meso || 0));
       const sign = raw < 0 ? "-" : "";
+      const value = Math.abs(raw);
+      const eok = Math.floor(value / 100000000);
+      const man = Math.floor((value % 100000000) / 10000);
+      const rest = value % 10000;
+      const showZeroRest = Boolean(options.showZeroRest);
+
+      const parts = [];
+
+      if (eok) parts.push(`${eok.toLocaleString("ko-KR")}억`);
+      if (man) parts.push(`${man.toLocaleString("ko-KR")}만`);
+
+      // 메이플 실제 표기 검수용: 억/만이 있어도 원 단위가 있으면 반드시 표시
+      if (rest || showZeroRest || (!eok && !man)) {
+        parts.push(`${rest.toLocaleString("ko-KR")}메소`);
+      }
+
+      return sign + parts.join(" ");
+    }
+
+    function formatMesoKoreanForInput(meso) {
+      const raw = Math.round(Number(meso || 0));
       const value = Math.abs(raw);
       const eok = Math.floor(value / 100000000);
       const man = Math.floor((value % 100000000) / 10000);
@@ -3195,8 +3216,9 @@
       const parts = [];
       if (eok) parts.push(`${eok.toLocaleString("ko-KR")}억`);
       if (man) parts.push(`${man.toLocaleString("ko-KR")}만`);
-      if (!eok && !man) parts.push(`${rest.toLocaleString("ko-KR")}메소`);
-      return sign + parts.join(" ");
+      if (rest || (!eok && !man)) parts.push(`${rest.toLocaleString("ko-KR")}`);
+
+      return parts.join(" ");
     }
 
     function getOcrNumberVariants(token, kind) {
