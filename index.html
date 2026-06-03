@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v46</title>
+  <title>메이플스토리 장부 앱 v47</title>
   <style>
     :root {
       --bg: #020617;
@@ -523,6 +523,31 @@
       font-size: 14px;
     }
 
+
+
+    .reconcile-card.folded .reconcile-body {
+      display: none;
+    }
+
+    .reconcile-card.folded {
+      padding-bottom: 14px;
+    }
+
+    .reconcile-head {
+      cursor: pointer;
+    }
+
+    .reconcile-head-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .reconcile-toggle {
+      min-width: 92px;
+      white-space: nowrap;
+    }
 
     .reconcile-card {
       background: rgba(15, 23, 42, .96);
@@ -1635,7 +1660,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v46</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v47</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -1659,15 +1684,19 @@
     </div>
 
     <main id="ledgerTab">
-      <div class="reconcile-card" id="reconcileCard">
-        <div class="reconcile-head">
+      <div class="reconcile-card folded" id="reconcileCard">
+        <div class="reconcile-head" id="reconcileHead">
           <div>
             <h2 class="reconcile-title">실제 메소 맞추기</h2>
-            <p class="desc">인게임 메소 스크린샷을 붙여넣거나 업로드하면 OCR로 숫자 후보를 추출합니다. 최종 보정은 확인 후 직접 기록합니다.</p>
+            <p class="desc">인게임 표기처럼 억/만/원 단위로 입력해 장부 잔액을 맞춥니다.</p>
           </div>
-          <button class="secondary-button" id="clearOcrButton" type="button">초기화</button>
+          <div class="reconcile-head-actions">
+            <button class="secondary-button reconcile-toggle" id="toggleReconcileButton" type="button">펼치기</button>
+            <button class="secondary-button" id="clearOcrButton" type="button">초기화</button>
+          </div>
         </div>
 
+        <div class="reconcile-body" id="reconcileBody">
         <div class="ocr-drop-zone" id="ocrDropZone">
           스크린샷을 여기에 붙여넣기 Ctrl+V 하거나 이미지를 선택하세요.
           <div class="hint">OCR은 숫자 후보만 추출합니다. 저장 전 인식값을 꼭 확인하세요.</div>
@@ -1729,6 +1758,7 @@
 
         <div class="ocr-raw" id="ocrRawText"></div>
         <div class="hint" id="ocrCandidateHint"></div>
+        </div>
       </div>
 
       <section class="grid3">
@@ -3086,6 +3116,41 @@
         .replaceAll('"', "&quot;");
     }
 
+    function setReconcileFolded(isFolded) {
+      const card = $("reconcileCard");
+      const button = $("toggleReconcileButton");
+
+      if (!card || !button) return;
+
+      card.classList.toggle("folded", Boolean(isFolded));
+      button.textContent = isFolded ? "펼치기" : "접기";
+
+      try {
+        localStorage.setItem("maple-ledger-reconcile-folded", isFolded ? "true" : "false");
+      } catch (error) {
+        console.warn("OCR 접힘 상태 저장 실패", error);
+      }
+    }
+
+    function toggleReconcileFold() {
+      const card = $("reconcileCard");
+      if (!card) return;
+      setReconcileFolded(!card.classList.contains("folded"));
+    }
+
+    function restoreReconcileFoldState() {
+      let shouldFold = true;
+
+      try {
+        const saved = localStorage.getItem("maple-ledger-reconcile-folded");
+        if (saved === "false") shouldFold = false;
+      } catch (error) {
+        console.warn("OCR 접힘 상태 불러오기 실패", error);
+      }
+
+      setReconcileFolded(shouldFold);
+    }
+
     function eokToMeso(value) {
       return Math.round(Number(value || 0) * 100000000);
     }
@@ -3499,6 +3564,7 @@
 
       currentOcrImage = file;
       currentOcrRawText = "";
+      setReconcileFolded(false);
 
       const preview = $("ocrPreview");
       if (preview) {
@@ -4086,6 +4152,16 @@
       }
     }
 
+    $("toggleReconcileButton").addEventListener("click", event => {
+      event.stopPropagation();
+      toggleReconcileFold();
+    });
+
+    $("reconcileHead").addEventListener("click", event => {
+      if (event.target.closest("button")) return;
+      toggleReconcileFold();
+    });
+
     $("actualMesoRawInput").addEventListener("input", () => {
       const rawValue = $("actualMesoRawInput").value.trim();
       const parsed = parseMesoInput(rawValue);
@@ -4315,6 +4391,7 @@
     });
 
     try {
+      restoreReconcileFoldState();
       setStatus("구글 시트 연결 시작...");
       const hasCache = loadCache();
       if (!hasCache) renderAll();
