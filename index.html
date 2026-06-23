@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v48</title>
+  <title>메이플스토리 장부 앱 v49</title>
   <style>
     :root {
       --bg: #020617;
@@ -636,6 +636,26 @@
       flex-wrap: wrap;
     }
 
+
+
+    .ocr-record-options {
+      display: grid;
+      grid-template-columns: 160px 180px minmax(0, 1fr);
+      gap: 8px;
+      margin-top: 10px;
+      align-items: end;
+    }
+
+    .ocr-record-options select,
+    .ocr-record-options input {
+      width: 100%;
+    }
+
+    @media (max-width: 720px) {
+      .ocr-record-options {
+        grid-template-columns: 1fr;
+      }
+    }
 
     .meso-unit-grid {
       display: grid;
@@ -1523,6 +1543,26 @@
       }
 
   
+
+    .ocr-record-options {
+      display: grid;
+      grid-template-columns: 160px 180px minmax(0, 1fr);
+      gap: 8px;
+      margin-top: 10px;
+      align-items: end;
+    }
+
+    .ocr-record-options select,
+    .ocr-record-options input {
+      width: 100%;
+    }
+
+    @media (max-width: 720px) {
+      .ocr-record-options {
+        grid-template-columns: 1fr;
+      }
+    }
+
     .meso-unit-grid {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1660,7 +1700,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v48</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v49</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -1729,6 +1769,25 @@
             <label>원 단위</label>
             <input id="actualMesoRestInput" inputmode="numeric" placeholder="예: 8474" />
             <span class="meso-unit-label">메소</span>
+          </div>
+        </div>
+
+        <div class="ocr-record-options">
+          <div class="field">
+            <label>기록 종류</label>
+            <select id="ocrRecordTypeSelect">
+              <option value="auto" selected>잔액 보정 자동</option>
+              <option value="income">수입</option>
+              <option value="expense">지출</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>카테고리</label>
+            <select id="ocrCategorySelect"></select>
+          </div>
+          <div class="field">
+            <label>코멘트</label>
+            <input id="ocrCommentInput" placeholder="예: 창고 메소 보정, 강화 비용, 소비 기록 등" />
           </div>
         </div>
 
@@ -2319,6 +2378,37 @@
           <button class="delete" type="button" onclick="deleteCategory('${type}', '${escapeAttr(category)}')">×</button>
         </div>
       `).join("");
+    }
+
+    async function deleteMesoPurchase(id) {
+      if (!id) return;
+      if (!window.__deletingMesoPurchaseIds) window.__deletingMesoPurchaseIds = new Set();
+      if (window.__deletingMesoPurchaseIds.has(id)) return;
+
+      window.__deletingMesoPurchaseIds.add(id);
+
+      const previous = [...mesoPurchases];
+      mesoPurchases = mesoPurchases.filter(item => item.id !== id);
+      renderMesoPurchases();
+      saveCache();
+      setStatus("메소 구매 기록을 삭제 중입니다...");
+
+      try {
+        const result = await apiGet({ action: "deleteMesoPurchase", id });
+
+        if (!result.ok) throw new Error(result.message || "메소 구매 기록 삭제 실패");
+
+        setStatus("메소 구매 기록을 삭제했습니다.", "ok");
+        await loadData({ silent: true });
+      } catch (error) {
+        console.error(error);
+        mesoPurchases = previous;
+        renderMesoPurchases();
+        saveCache();
+        setStatus("메소 구매 기록 삭제 실패: 다시 표시했습니다.", "error");
+      } finally {
+        window.__deletingMesoPurchaseIds.delete(id);
+      }
     }
 
     function renderMesoPurchases() {
@@ -3293,21 +3383,19 @@
       const variants = new Set();
       variants.add(digits);
 
-      // OCR often reads Korean unit glyphs as an extra trailing digit.
-      // Examples:
-      // 573억 -> 5739
-      // 3693만 -> 36938
-      // 4303만 -> 43037
-      if (digits.length >= 4) {
+      // 억 단위는 1000억 이상도 정상값이지만, OCR이 '억' 글자를 후행 숫자로 붙이는 경우도 있다.
+      // 예: 1071억은 1071 유지, 732억이 7329로 잡히고 다음 만 단위가 72078처럼 5자리면 732 후보를 선택.
+      if (kind === "eok" && digits.length >= 4) {
         variants.add(digits.slice(0, -1));
       }
 
-      if (kind === "man" && digits.length >= 5) {
-        variants.add(digits.slice(0, 4));
+      if (kind === "man") {
+        if (digits.length >= 5) variants.add(digits.slice(0, 4));
+        if (digits.length >= 4) variants.add(digits.slice(0, -1));
       }
 
-      if (kind === "eok" && digits.length >= 4) {
-        variants.add(digits.slice(0, 3));
+      if (kind === "rest" && digits.length > 4) {
+        variants.add(digits.slice(0, 4));
       }
 
       return [...variants]
@@ -3333,8 +3421,17 @@
       const rawManNumber = Number(String(rawMan || "").replace(/[^\d]/g, ""));
       if (rawManNumber > 9999 && man <= 9999) score += 12;
 
-      const rawEokNumber = Number(String(rawEok || "").replace(/[^\d]/g, ""));
-      if (rawEokNumber >= 1000 && eok < 1000) score += 6;
+      const rawEokDigits = String(rawEok || "").replace(/[^\d]/g, "");
+      const rawEokNumber = Number(rawEokDigits);
+      const rawManNumberForEok = Number(String(rawMan || "").replace(/[^\d]/g, ""));
+
+      if (rawEokDigits.length >= 4 && rawManNumberForEok > 9999 && eok < rawEokNumber) {
+        // eok 뒤에 단위 글자가 숫자로 붙었고, 다음 만 단위도 5자리 오염인 경우 trim 후보 우선.
+        score += 18;
+      } else if (rawEokNumber >= 1000 && eok === rawEokNumber) {
+        // 1000억 이상 정상 케이스 유지.
+        score += 14;
+      }
 
       return score;
     }
@@ -3739,6 +3836,36 @@
       return eokToMeso(totalEok);
     }
 
+    function getOcrRecordType() {
+      return $("ocrRecordTypeSelect")?.value || "auto";
+    }
+
+    function renderOcrCategoryOptions() {
+      const select = $("ocrCategorySelect");
+      if (!select) return;
+
+      const actualMeso = getActualMesoInputValue();
+      const ledgerMeso = getLedgerBalanceMeso();
+      const diff = actualMeso - ledgerMeso;
+
+      let type = getOcrRecordType();
+      if (type === "auto") type = diff >= 0 ? "income" : "expense";
+
+      const list = categories[type] || [];
+      const previous = select.value;
+      select.innerHTML = "";
+
+      list.forEach(name => {
+        const option = document.createElement("option");
+        option.value = name;
+        option.textContent = name;
+        select.appendChild(option);
+      });
+
+      const preferred = list.includes("잔액 보정") ? "잔액 보정" : (list[0] || "");
+      select.value = list.includes(previous) ? previous : preferred;
+    }
+
     function updateReconcilePreview() {
       const input = $("actualMesoRawInput");
       if (!input) return;
@@ -3761,29 +3888,57 @@
       }
 
       if (directionEl) {
-        directionEl.textContent = diff > 0 ? "수입 보정" : diff < 0 ? "지출 보정" : "보정 없음";
-        directionEl.className = `value ${diff > 0 ? "orange" : diff < 0 ? "blue" : ""}`;
+        const selectedType = getOcrRecordType();
+        if (selectedType === "income") {
+          directionEl.textContent = "수입 기록";
+          directionEl.className = "value orange";
+        } else if (selectedType === "expense") {
+          directionEl.textContent = "지출 기록";
+          directionEl.className = "value blue";
+        } else {
+          directionEl.textContent = diff > 0 ? "수입 보정" : diff < 0 ? "지출 보정" : "보정 없음";
+          directionEl.className = `value ${diff > 0 ? "orange" : diff < 0 ? "blue" : ""}`;
+        }
       }
+
+      renderOcrCategoryOptions();
     }
 
     async function addReconcileRecord() {
       const actualMeso = getActualMesoInputValue();
       const ledgerMeso = getLedgerBalanceMeso();
       const diffMeso = actualMeso - ledgerMeso;
+      const selectedMode = getOcrRecordType();
 
       if (!actualMeso) {
         setStatus("실제 메소 값을 먼저 입력하거나 OCR로 인식해주세요.", "error");
         return;
       }
 
-      if (diffMeso === 0) {
-        setStatus("장부 잔액과 실제 메소가 같아서 보정할 차액이 없습니다.", "ok");
-        return;
+      let type;
+      let amountMeso;
+      let category;
+      let comment;
+
+      if (selectedMode === "income" || selectedMode === "expense") {
+        type = selectedMode;
+        amountMeso = actualMeso;
+        category = $("ocrCategorySelect")?.value || (type === "income" ? "사냥" : "강화");
+        comment = ($("ocrCommentInput")?.value || "").trim() || `OCR 입력 메소 ${formatMesoKorean(actualMeso)} 기준 ${type === "income" ? "수입" : "지출"} 기록`;
+      } else {
+        if (diffMeso === 0) {
+          setStatus("장부 잔액과 실제 메소가 같아서 보정할 차액이 없습니다.", "ok");
+          return;
+        }
+
+        type = diffMeso > 0 ? "income" : "expense";
+        amountMeso = Math.abs(diffMeso);
+        category = $("ocrCategorySelect")?.value || "잔액 보정";
+        comment = ($("ocrCommentInput")?.value || "").trim() ||
+          `실제 메소 ${formatMesoKorean(actualMeso)} 기준 보정 / 장부 ${formatMesoKorean(ledgerMeso)}`;
       }
 
-      const type = diffMeso > 0 ? "income" : "expense";
-      const amountEok = Math.abs(mesoToEok(diffMeso));
-      const comment = `실제 메소 ${formatMesoKorean(actualMeso)} 기준 보정 / 장부 ${formatMesoKorean(ledgerMeso)}`;
+      const amountEok = Math.abs(mesoToEok(amountMeso));
 
       const tempId = `temp-reconcile-${Date.now()}`;
       const tempRecord = {
@@ -3791,7 +3946,7 @@
         created_at: new Date().toISOString(),
         type,
         amount: amountEok,
-        category: "잔액 보정",
+        category,
         comment,
         pending: true,
       };
@@ -3799,18 +3954,18 @@
       records = [tempRecord, ...records];
       renderAll();
       saveCache();
-      setStatus("잔액 보정 기록을 화면에 먼저 반영했습니다. 구글 시트 저장 중...");
+      setStatus(`${type === "income" ? "수입" : "지출"} 기록을 화면에 먼저 반영했습니다. 구글 시트 저장 중...`);
 
       try {
         const result = await apiGet({
           action: "addRecord",
           type,
           amount: amountEok,
-          category: "잔액 보정",
+          category,
           comment,
         });
 
-        if (!result.ok) throw new Error(result.message || "잔액 보정 저장 실패");
+        if (!result.ok) throw new Error(result.message || "OCR 기록 저장 실패");
 
         const savedRecord = result.record || {
           ...tempRecord,
@@ -3821,13 +3976,13 @@
         records = records.map(record => record.id === tempId ? { ...savedRecord, pending: false } : record);
         renderAll();
         saveCache();
-        setStatus(`잔액 보정 기록 완료: ${diffMeso > 0 ? "+" : ""}${formatMesoKorean(diffMeso)}`, "ok");
+        setStatus(`OCR 기록 완료: ${type === "income" ? "+" : "-"}${formatMesoKorean(amountMeso)}`, "ok");
       } catch (error) {
         console.error(error);
         records = records.filter(record => record.id !== tempId);
         renderAll();
         saveCache();
-        setStatus("잔액 보정 기록 저장 실패: 입력값을 되돌렸습니다.", "error");
+        setStatus("OCR 기록 저장 실패: 입력값을 되돌렸습니다.", "error");
       }
     }
 
@@ -3861,6 +4016,7 @@
       safeRenderStep("settings", renderSettings);
       safeRenderStep("mesoPurchases", renderMesoPurchases);
       safeRenderStep("reconcile", updateReconcilePreview);
+      safeRenderStep("ocrCategory", renderOcrCategoryOptions);
       safeRenderStep("equipment", renderEquipment);
       safeRenderStep("extraItems", renderExtraItems);
       safeRenderStep("settlement", renderSettlement);
@@ -4232,6 +4388,13 @@
         clearUnitInputs();
       }
     });
+
+    $("ocrRecordTypeSelect").addEventListener("change", () => {
+      renderOcrCategoryOptions();
+      updateReconcilePreview();
+    });
+
+    $("ocrCategorySelect").addEventListener("change", updateReconcilePreview);
 
     ["actualMesoEokInput", "actualMesoManInput", "actualMesoRestInput"].forEach(id => {
       const input = $(id);
