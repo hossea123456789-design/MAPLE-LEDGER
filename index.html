@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v59</title>
+  <title>메이플스토리 장부 앱 v60</title>
   <style>
     :root {
       --bg: #020617;
@@ -1743,7 +1743,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v59</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v60</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -4229,6 +4229,81 @@
         });
         setStatus(`로컬 OCR 실패: ${error.message || error}. 억/만/원 칸에 직접 입력해주세요.`, "error");
       }
+    }
+
+    function getLedgerBalanceMeso() {
+      const totalEok = records.reduce((sum, record) => {
+        const amount = Number(record.amount || 0);
+        return record.type === "income" ? sum + amount : sum - amount;
+      }, 0);
+
+      return eokToMeso(totalEok);
+    }
+
+    function getOcrRecordType() {
+      return $("ocrRecordTypeSelect")?.value || "auto";
+    }
+
+    function renderOcrCategoryOptions() {
+      const select = $("ocrCategorySelect");
+      if (!select) return;
+
+      const actualMeso = getActualMesoInputValue();
+      const ledgerMeso = getLedgerBalanceMeso();
+      const diff = actualMeso - ledgerMeso;
+
+      let type = getOcrRecordType();
+      if (type === "auto") type = diff >= 0 ? "income" : "expense";
+
+      const list = categories[type] || [];
+      const previous = select.value;
+      select.innerHTML = "";
+
+      list.forEach(name => {
+        const option = document.createElement("option");
+        option.value = name;
+        option.textContent = name;
+        select.appendChild(option);
+      });
+
+      const preferred = list.includes("잔액 보정") ? "잔액 보정" : (list[0] || "");
+      select.value = list.includes(previous) ? previous : preferred;
+    }
+
+    function updateReconcilePreview() {
+      const actualMeso = getActualMesoInputValue();
+      const ledgerMeso = getLedgerBalanceMeso();
+      const diff = actualMeso - ledgerMeso;
+
+      const actualEl = $("actualMesoPretty");
+      const ledgerEl = $("ledgerBalancePretty");
+      const diffEl = $("reconcileDiffPretty");
+      const directionEl = $("reconcileDirection");
+
+      if (actualEl) actualEl.textContent = actualMeso ? formatMesoKorean(actualMeso) : "0메소";
+      if (ledgerEl) ledgerEl.textContent = formatMesoKorean(ledgerMeso);
+
+      if (diffEl) {
+        diffEl.textContent = `${diff >= 0 ? "+" : ""}${formatMesoKorean(diff)}`;
+        diffEl.className = `value ${diff >= 0 ? "orange" : "blue"}`;
+      }
+
+      if (directionEl) {
+        const selectedType = getOcrRecordType();
+
+        if (selectedType === "income") {
+          directionEl.textContent = "수입 기록";
+          directionEl.className = "value orange";
+        } else if (selectedType === "expense") {
+          directionEl.textContent = "지출 기록";
+          directionEl.className = "value blue";
+        } else {
+          directionEl.textContent = diff > 0 ? "수입 보정" : diff < 0 ? "지출 보정" : "보정 없음";
+          directionEl.className = `value ${diff > 0 ? "orange" : diff < 0 ? "blue" : ""}`;
+        }
+      }
+
+      renderOcrCategoryOptions();
     }
 
     async function addReconcileRecord() {
