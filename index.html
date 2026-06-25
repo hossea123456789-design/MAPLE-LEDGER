@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v55</title>
+  <title>메이플스토리 장부 앱 v56</title>
   <style>
     :root {
       --bg: #020617;
@@ -1733,10 +1733,17 @@
   </style>
 </head>
 <body>
+  <iframe id="ocrUploadFrame" name="ocrUploadFrame" style="display:none;width:0;height:0;border:0;"></iframe>
+  <form id="ocrUploadForm" method="POST" target="ocrUploadFrame" style="display:none;">
+    <input type="hidden" name="action" value="ocrMesoUpload" />
+    <input type="hidden" name="jobId" id="ocrUploadJobId" />
+    <input type="hidden" name="imageBase64" id="ocrUploadImageBase64" />
+  </form>
+
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v55</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v56</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -1769,6 +1776,10 @@
           <div class="reconcile-head-actions">
             <button class="secondary-button reconcile-toggle" id="toggleReconcileButton" type="button">펼치기</button>
             <button class="secondary-button" id="clearOcrButton" type="button">초기화</button>
+          <span id="ocrTopLogActions" style="display:inline-flex;gap:8px;flex-wrap:wrap;">
+            <button class="secondary-button" id="toggleDebugLogButton" type="button">로그 보기</button>
+            <button class="secondary-button" id="copyDebugLogButton" type="button">로그 복사</button>
+          </span>
           </div>
         </div>
 
@@ -4018,36 +4029,62 @@
 
     async function runExternalOcrSpace(processedImage) {
       const compressed = await imageBlobToCompressedDataUrl(processedImage, 760, 0.82);
+      const jobId = `ocr_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
-      addDebugLog("OCR request prepared", {
+      addDebugLog("OCR upload prepared", {
+        jobId,
         imageWidth: compressed.width,
         imageHeight: compressed.height,
         approxBytes: compressed.bytes,
         dataUrlLength: compressed.dataUrl.length,
-        transport: "jsonp",
+        transport: "hidden-iframe-post + jsonp-poll",
       });
 
-      const result = await makeJsonpRequest({
-        action: "ocrMeso",
-        imageBase64: compressed.dataUrl,
-      }, 45000);
+      const form = $("ocrUploadForm");
+      const jobInput = $("ocrUploadJobId");
+      const imageInput = $("ocrUploadImageBase64");
 
-      addDebugLog("OCR response received", {
-        ok: result && result.ok,
-        message: result && result.message,
-        text: result && result.text,
-        rawSummary: result && result.raw ? {
-          OCRExitCode: result.raw.OCRExitCode,
-          IsErroredOnProcessing: result.raw.IsErroredOnProcessing,
-          ErrorMessage: result.raw.ErrorMessage,
-        } : null,
-      });
-
-      if (!result || !result.ok) {
-        throw new Error((result && result.message) || "외부 OCR 실패");
+      if (!form || !jobInput || !imageInput) {
+        throw new Error("OCR 업로드 폼을 찾지 못했습니다.");
       }
 
-      return result.text || "";
+      form.action = API_URL;
+      jobInput.value = jobId;
+      imageInput.value = compressed.dataUrl;
+
+      addDebugLog("OCR iframe form submit", { jobId, action: form.action });
+      form.submit();
+
+      let lastPayload = null;
+
+      for (let i = 0; i < 30; i += 1) {
+        await sleep(i < 5 ? 1000 : 1500);
+
+        const payload = await makeJsonpRequest({
+          action: "getOcrResult",
+          jobId,
+        }, 15000);
+
+        lastPayload = payload;
+        addDebugLog("OCR poll response", {
+          jobId,
+          attempt: i + 1,
+          ok: payload && payload.ok,
+          status: payload && payload.status,
+          message: payload && payload.message,
+          text: payload && payload.text,
+        });
+
+        if (payload && payload.ok && payload.status === "done") {
+          return payload.text || "";
+        }
+
+        if (payload && payload.ok === false && payload.status === "error") {
+          throw new Error(payload.message || "OCR 처리 실패");
+        }
+      }
+
+      throw new Error(`OCR 결과 대기 시간 초과${lastPayload && lastPayload.message ? ": " + lastPayload.message : ""}`);
     }
 
     async function runOcr() {
@@ -4062,12 +4099,15 @@
       try {
         const processedImage = await preprocessImageForMesoOcr(currentOcrImage);
         addDebugLog("OCR image preprocessed", { blobSize: processedImage && processedImage.size, type: processedImage && processedImage.type });
+        addDebugLog("OCR image preprocessed", { blobSize: processedImage && processedImage.size, type: processedImage && processedImage.type });
 
         setStatus("OCR.space 외부 OCR 인식 중...");
         currentOcrRawText = await runExternalOcrSpace(processedImage);
+        addDebugLog("OCR text received", { text: currentOcrRawText });
         addDebugLog("OCR text parsed start", { text: currentOcrRawText });
 
         const parsed = parseMapleMesoFromOcrText(currentOcrRawText);
+        addDebugLog("OCR parsed candidate", parsed);
         addDebugLog("OCR parsed candidate", parsed);
 
         if ($("ocrRawText")) $("ocrRawText").textContent = currentOcrRawText || "OCR 결과가 없습니다.";
@@ -4885,6 +4925,28 @@
       console.error("Boot error:", error);
       setStatus("앱 시작 실패: " + (error.message || ""), "error");
     }
+
+    document.addEventListener("click", event => {
+      const target = event.target;
+      if (!target || !target.id) return;
+
+      if (target.id === "toggleDebugLogButton" || target.id === "toggleDebugLogButtonBottom") {
+        event.preventDefault();
+        toggleDebugLogPanel();
+      }
+
+      if (target.id === "copyDebugLogButton" || target.id === "copyDebugLogButtonBottom") {
+        event.preventDefault();
+        copyDebugLog();
+      }
+
+      if (target.id === "clearDebugLogButton") {
+        event.preventDefault();
+        clearDebugLog();
+      }
+    });
+
+
   </script>
 </body>
 </html>
