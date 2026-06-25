@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v58</title>
+  <title>메이플스토리 장부 앱 v59</title>
   <style>
     :root {
       --bg: #020617;
@@ -1743,7 +1743,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v58</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v59</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -1796,9 +1796,9 @@
           <div class="field">
             <label>OCR 인식/직접 입력 메소</label>
             <input id="actualMesoRawInput" inputmode="numeric" placeholder="예: 5473210000 또는 54억7321만" />
-            <div class="hint">OCR.space 외부 OCR을 사용합니다. 실제값은 아래 억/만/원 칸에서 최종 확인하세요.</div>
+            <div class="hint">로컬 Tesseract OCR을 사용합니다. 실제값은 아래 억/만/원 칸에서 최종 확인하세요.</div>
           </div>
-          <button class="secondary-button" id="runOcrButton" type="button">외부 외부 OCR 실행</button>
+          <button class="secondary-button" id="runOcrButton" type="button">외부 로컬 로컬 OCR 실행</button>
         </div>
 
         <div class="meso-unit-grid">
@@ -4031,88 +4031,169 @@
       return new Promise(resolve => setTimeout(resolve, ms));
     }
 
-    async function runExternalOcrSpace(processedImage) {
-      const waitForPollDelay = ms => new Promise(resolve => setTimeout(resolve, ms));
-      const compressed = await imageBlobToCompressedDataUrl(processedImage, 760, 0.82);
-      const jobId = `ocr_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    function loadTesseractLibrary() {
+      return new Promise((resolve, reject) => {
+        if (window.Tesseract) {
+          resolve(window.Tesseract);
+          return;
+        }
 
-      addDebugLog("OCR upload prepared", {
-        jobId,
-        imageWidth: compressed.width,
-        imageHeight: compressed.height,
-        approxBytes: compressed.bytes,
-        dataUrlLength: compressed.dataUrl.length,
-        transport: "hidden-iframe-post + jsonp-poll",
+        const existing = document.querySelector('script[data-maple-tesseract="1"]');
+        if (existing) {
+          existing.addEventListener("load", () => resolve(window.Tesseract));
+          existing.addEventListener("error", () => reject(new Error("Tesseract.js 로드 실패")));
+          return;
+        }
+
+        const script = document.createElement("script");
+        script.dataset.mapleTesseract = "1";
+        script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+        script.onload = () => {
+          if (window.Tesseract) resolve(window.Tesseract);
+          else reject(new Error("Tesseract 객체를 찾지 못했습니다."));
+        };
+        script.onerror = () => reject(new Error("Tesseract.js 로드 실패"));
+        document.head.appendChild(script);
+      });
+    }
+
+    async function preprocessImageForMesoOcrLocal(file) {
+      return new Promise((resolve, reject) => {
+        const image = new Image();
+        const url = URL.createObjectURL(file);
+
+        image.onload = () => {
+          try {
+            const sourceW = image.naturalWidth || image.width;
+            const sourceH = image.naturalHeight || image.height;
+            const aspectRatio = sourceW / Math.max(1, sourceH);
+            const isAlreadyMesoStrip = aspectRatio >= 2.2 || sourceH <= 360;
+
+            let cropX;
+            let cropY;
+            let cropW;
+            let cropH;
+
+            if (isAlreadyMesoStrip) {
+              cropX = 0;
+              cropY = 0;
+              cropW = sourceW;
+              cropH = sourceH;
+            } else {
+              cropX = Math.floor(sourceW * 0.22);
+              cropY = Math.floor(sourceH * 0.48);
+              cropW = Math.floor(sourceW * 0.76);
+              cropH = Math.floor(sourceH * 0.34);
+            }
+
+            const scale = isAlreadyMesoStrip ? 4 : 3;
+            const canvas = document.createElement("canvas");
+            canvas.width = cropW * scale;
+            canvas.height = cropH * scale;
+
+            const ctx = canvas.getContext("2d");
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(image, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+
+            for (let i = 0; i < data.length; i += 4) {
+              const r = data[i];
+              const g = data[i + 1];
+              const b = data[i + 2];
+              const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+              const value = Math.max(0, Math.min(255, Math.round((gray - 128) * 1.85 + 128)));
+              data[i] = value;
+              data[i + 1] = value;
+              data[i + 2] = value;
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+            URL.revokeObjectURL(url);
+
+            canvas.toBlob(blob => resolve(blob || file), "image/png");
+          } catch (error) {
+            URL.revokeObjectURL(url);
+            reject(error);
+          }
+        };
+
+        image.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error("이미지를 불러오지 못했습니다."));
+        };
+
+        image.src = url;
+      });
+    }
+
+    async function runTesseractMesoOcr(processedImage) {
+      if (!window.Tesseract) {
+        addDebugLog("Tesseract load start");
+        await loadTesseractLibrary();
+        addDebugLog("Tesseract load done");
+      }
+
+      const config = {
+        tessedit_char_whitelist: "0123456789억만 ",
+        preserve_interword_spaces: "1",
+        tessedit_pageseg_mode: "7",
+      };
+
+      addDebugLog("Tesseract recognize start", {
+        config,
+        blobSize: processedImage && processedImage.size,
+        blobType: processedImage && processedImage.type,
       });
 
-      const form = $("ocrUploadForm");
-      const jobInput = $("ocrUploadJobId");
-      const imageInput = $("ocrUploadImageBase64");
+      const result = await Tesseract.recognize(
+        processedImage,
+        "kor+eng",
+        {
+          logger: message => {
+            if (message.status === "recognizing text" && typeof message.progress === "number") {
+              setStatus(`로컬 OCR 인식 중... ${Math.round(message.progress * 100)}%`);
+            }
+          }
+        },
+        config
+      );
 
-      if (!form || !jobInput || !imageInput) {
-        throw new Error("OCR 업로드 폼을 찾지 못했습니다.");
-      }
+      const text = result?.data?.text || "";
 
-      form.action = API_URL;
-      jobInput.value = jobId;
-      imageInput.value = compressed.dataUrl;
+      addDebugLog("Tesseract recognize done", {
+        text,
+        confidence: result?.data?.confidence,
+      });
 
-      addDebugLog("OCR iframe form submit", { jobId, action: form.action });
-      form.submit();
+      return text;
+    }
 
-      let lastPayload = null;
-
-      for (let i = 0; i < 30; i += 1) {
-        await waitForPollDelay(i < 5 ? 1000 : 1500);
-
-        const payload = await makeJsonpRequest({
-          action: "getOcrResult",
-          jobId,
-        }, 15000);
-
-        lastPayload = payload;
-        addDebugLog("OCR poll response", {
-          jobId,
-          attempt: i + 1,
-          ok: payload && payload.ok,
-          status: payload && payload.status,
-          message: payload && payload.message,
-          text: payload && payload.text,
-        });
-
-        if (payload && payload.ok && payload.status === "done") {
-          return payload.text || "";
-        }
-
-        if (payload && payload.ok === false && payload.status === "error") {
-          throw new Error(payload.message || "OCR 처리 실패");
-        }
-      }
-
-      throw new Error(`OCR 결과 대기 시간 초과${lastPayload && lastPayload.message ? ": " + lastPayload.message : ""}`);
+    async function runExternalOcrSpace(processedImage) {
+      return await runTesseractMesoOcr(processedImage);
     }
 
     async function runOcr() {
       if (!currentOcrImage) {
-        setStatus("외부 OCR을 실행할 이미지를 먼저 붙여넣거나 선택하세요.", "error");
+        setStatus("OCR을 실행할 이미지를 먼저 붙여넣거나 선택하세요.", "error");
         return;
       }
 
-      setStatus("OCR.space 외부 OCR 요청 준비 중...");
-      addDebugLog("OCR button clicked");
+      setStatus("로컬 Tesseract OCR 준비 중...");
+      addDebugLog("Local OCR button clicked");
 
       try {
-        const processedImage = await preprocessImageForMesoOcr(currentOcrImage);
-        addDebugLog("OCR image preprocessed", { blobSize: processedImage && processedImage.size, type: processedImage && processedImage.type });
+        const processedImage = await preprocessImageForMesoOcrLocal(currentOcrImage);
+        addDebugLog("Local OCR image preprocessed", {
+          blobSize: processedImage && processedImage.size,
+          type: processedImage && processedImage.type,
+        });
 
-        setStatus("OCR.space 외부 OCR 인식 중...");
-        currentOcrRawText = await runExternalOcrSpace(processedImage);
-        addDebugLog("OCR text received", { text: currentOcrRawText });
-        addDebugLog("OCR text parsed start", { text: currentOcrRawText });
-
+        currentOcrRawText = await runTesseractMesoOcr(processedImage);
         const parsed = parseMapleMesoFromOcrText(currentOcrRawText);
-        addDebugLog("OCR parsed candidate", parsed);
-        addDebugLog("OCR parsed candidate", parsed);
+
+        addDebugLog("Local OCR parsed candidate", parsed);
 
         if ($("ocrRawText")) $("ocrRawText").textContent = currentOcrRawText || "OCR 결과가 없습니다.";
 
@@ -4130,98 +4211,24 @@
           if ($("ocrCandidateHint")) {
             const rawTokenText = parsed.rawTokens ? ` · 원문 후보: ${parsed.rawTokens}` : "";
             $("ocrCandidateHint").textContent =
-              `OCR.space 후보: ${parsed.confidenceText}${rawTokenText} · 실제 화면 값과 반드시 비교 후 확정하세요.`;
+              `로컬 OCR 후보: ${parsed.confidenceText}${rawTokenText} · 실제 화면 값과 반드시 비교 후 확정하세요.`;
           }
 
-          setStatus(`OCR.space 후보를 입력칸에 반영했습니다: ${parsed.confidenceText}`, "ok");
+          setStatus(`로컬 OCR 후보를 입력칸에 반영했습니다: ${parsed.confidenceText}`, "ok");
         } else {
-          setStatus("OCR.space에서 메소 후보를 찾지 못했습니다. 억/만/원 칸에 직접 입력해주세요.", "error");
+          setStatus("로컬 OCR에서 메소 후보를 찾지 못했습니다. 억/만/원 칸에 직접 입력해주세요.", "error");
           if ($("ocrCandidateHint")) {
-            $("ocrCandidateHint").textContent = "OCR.space 원문에서 억/만/원 숫자 후보를 찾지 못했습니다.";
+            $("ocrCandidateHint").textContent = "OCR 원문에서 억/만/원 숫자 후보를 찾지 못했습니다.";
           }
         }
       } catch (error) {
         console.error(error);
-        addDebugLog("OCR failed", { message: error.message || String(error), stack: error.stack || "" });
-        setStatus(`외부 OCR 실패: ${error.message || error}. 억/만/원 칸에 직접 입력해주세요.`, "error");
+        addDebugLog("Local OCR failed", {
+          message: error.message || String(error),
+          stack: error.stack || "",
+        });
+        setStatus(`로컬 OCR 실패: ${error.message || error}. 억/만/원 칸에 직접 입력해주세요.`, "error");
       }
-    }
-
-    function getLedgerBalanceMeso() {
-      const totalEok = records.reduce((sum, record) => {
-        const amount = Number(record.amount || 0);
-        return record.type === "income" ? sum + amount : sum - amount;
-      }, 0);
-
-      return eokToMeso(totalEok);
-    }
-
-    function getOcrRecordType() {
-      return $("ocrRecordTypeSelect")?.value || "auto";
-    }
-
-    function renderOcrCategoryOptions() {
-      const select = $("ocrCategorySelect");
-      if (!select) return;
-
-      const actualMeso = getActualMesoInputValue();
-      const ledgerMeso = getLedgerBalanceMeso();
-      const diff = actualMeso - ledgerMeso;
-
-      let type = getOcrRecordType();
-      if (type === "auto") type = diff >= 0 ? "income" : "expense";
-
-      const list = categories[type] || [];
-      const previous = select.value;
-      select.innerHTML = "";
-
-      list.forEach(name => {
-        const option = document.createElement("option");
-        option.value = name;
-        option.textContent = name;
-        select.appendChild(option);
-      });
-
-      const preferred = list.includes("잔액 보정") ? "잔액 보정" : (list[0] || "");
-      select.value = list.includes(previous) ? previous : preferred;
-    }
-
-    function updateReconcilePreview() {
-      const input = $("actualMesoRawInput");
-      if (!input) return;
-
-      const actualMeso = getActualMesoInputValue();
-      const ledgerMeso = getLedgerBalanceMeso();
-      const diff = actualMeso - ledgerMeso;
-
-      const actualEl = $("actualMesoPretty");
-      const ledgerEl = $("ledgerBalancePretty");
-      const diffEl = $("reconcileDiffPretty");
-      const directionEl = $("reconcileDirection");
-
-      if (actualEl) actualEl.textContent = actualMeso ? formatMesoKorean(actualMeso) : "0메소";
-      if (ledgerEl) ledgerEl.textContent = formatMesoKorean(ledgerMeso);
-
-      if (diffEl) {
-        diffEl.textContent = `${diff >= 0 ? "+" : ""}${formatMesoKorean(diff)}`;
-        diffEl.className = `value ${diff >= 0 ? "orange" : "blue"}`;
-      }
-
-      if (directionEl) {
-        const selectedType = getOcrRecordType();
-        if (selectedType === "income") {
-          directionEl.textContent = "수입 기록";
-          directionEl.className = "value orange";
-        } else if (selectedType === "expense") {
-          directionEl.textContent = "지출 기록";
-          directionEl.className = "value blue";
-        } else {
-          directionEl.textContent = diff > 0 ? "수입 보정" : diff < 0 ? "지출 보정" : "보정 없음";
-          directionEl.className = `value ${diff > 0 ? "orange" : diff < 0 ? "blue" : ""}`;
-        }
-      }
-
-      renderOcrCategoryOptions();
     }
 
     async function addReconcileRecord() {
