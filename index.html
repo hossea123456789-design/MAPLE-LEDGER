@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v56</title>
+  <title>메이플스토리 장부 앱 v57</title>
   <style>
     :root {
       --bg: #020617;
@@ -1743,7 +1743,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v56</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v57</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -4027,7 +4027,12 @@
     }
 
 
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
     async function runExternalOcrSpace(processedImage) {
+      const waitForPollDelay = ms => new Promise(resolve => setTimeout(resolve, ms));
       const compressed = await imageBlobToCompressedDataUrl(processedImage, 760, 0.82);
       const jobId = `ocr_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
@@ -4058,7 +4063,7 @@
       let lastPayload = null;
 
       for (let i = 0; i < 30; i += 1) {
-        await sleep(i < 5 ? 1000 : 1500);
+        await waitForPollDelay(i < 5 ? 1000 : 1500);
 
         const payload = await makeJsonpRequest({
           action: "getOcrResult",
@@ -4098,7 +4103,6 @@
 
       try {
         const processedImage = await preprocessImageForMesoOcr(currentOcrImage);
-        addDebugLog("OCR image preprocessed", { blobSize: processedImage && processedImage.size, type: processedImage && processedImage.type });
         addDebugLog("OCR image preprocessed", { blobSize: processedImage && processedImage.size, type: processedImage && processedImage.type });
 
         setStatus("OCR.space 외부 OCR 인식 중...");
