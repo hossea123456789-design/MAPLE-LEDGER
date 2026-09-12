@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v62</title>
+  <title>메이플스토리 장부 앱 v63</title>
   <style>
     :root {
       --bg: #020617;
@@ -1820,6 +1820,37 @@
       background: rgba(127, 29, 29, 0.22);
     }
 
+  
+    .record-item.deleting {
+      opacity: 0.58;
+      pointer-events: none;
+      filter: grayscale(0.25);
+    }
+
+    .delete.deleting {
+      width: auto;
+      min-width: 68px;
+      padding: 0 10px;
+      font-size: 11px;
+      border-radius: 999px;
+    }
+
+  
+    .record.deleting,
+    .record-item.deleting {
+      opacity: 0.58;
+      pointer-events: none;
+      filter: grayscale(0.25);
+    }
+
+    .delete.deleting {
+      width: auto;
+      min-width: 68px;
+      padding: 0 10px;
+      font-size: 11px;
+      border-radius: 999px;
+    }
+
   </style>
 </head>
 <body>
@@ -1833,7 +1864,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v62</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v63</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -2310,6 +2341,7 @@
     let isSyncingCashPerEok = false;
     let currentOcrImage = null;
     let currentOcrRawText = "";
+    let deletingRecordIds = new Set();
     let sheetWriteQueue = Promise.resolve();
     let pendingSheetWriteCount = 0;
     let activeSheetWriteLabel = "";
@@ -2791,7 +2823,7 @@
       list.innerHTML = filtered.map(r => {
         const isIncome = r.type === "income";
         return `
-          <div class="record ${r.pending ? "pending" : ""}">
+          <div class="record ${r.pending ? "pending" : ""} ${deletingRecordIds.has(r.id) ? "deleting" : ""}">
             <div class="time">${formatDateTime(r.created_at)}</div>
             <div><span class="badge ${isIncome ? "income" : "expense"}">${typeIcon(r.type)}${isIncome ? "+ 수입" : "- 지출"}</span></div>
             <div class="record-main">
@@ -2799,7 +2831,7 @@
               <span class="record-comment">${escapeHtml(r.comment || "코멘트 없음")}</span>
             </div>
             <div class="record-amount ${isIncome ? "orange" : "blue"}">${isIncome ? "+" : "-"}${formatEok(r.amount)}</div>
-            <button class="delete" onclick="deleteRecord('${r.id}')">×</button>
+            <button class="delete ${deletingRecordIds.has(r.id) ? "deleting" : ""}" onclick="deleteRecord('${r.id}')" ${deletingRecordIds.has(r.id) ? "disabled" : ""}>${deletingRecordIds.has(r.id) ? "삭제 중" : "×"}</button>
           </div>
         `;
       }).join("");
@@ -5357,22 +5389,53 @@
     }
 
     window.deleteRecord = async function(id) {
-      const previousRecords = [...records];
-      records = records.filter(record => record.id !== id);
+      if (!id) return;
+
+      if (deletingRecordIds.has(id)) {
+        setStatus("이미 삭제 처리 중인 장부 기록입니다.", "normal");
+        return;
+      }
+
+      const target = records.find(record => record.id === id);
+
+      if (!target) {
+        addDebugLog("Delete record skipped: not found in local records", { id });
+        deletingRecordIds.delete(id);
+        renderAll();
+        saveCache();
+        setStatus("이미 화면에서 사라진 장부 기록입니다. 새로고침으로 상태를 맞췄습니다.", "ok");
+        return;
+      }
+
+      deletingRecordIds.add(id);
       renderAll();
       saveCache();
-      setStatus("장부 기록을 화면에서 먼저 삭제했습니다. 구글 시트 반영 중...");
+      setStatus("장부 기록을 구글 시트에서 삭제 중입니다. 성공 전까지 화면에서는 유지합니다...");
 
       try {
         const result = await enqueueSheetWrite("장부 기록 삭제", () => apiGetWithRetry({ action: "deleteRecord", id }, 30000, 2));
-        if (!result.ok) throw new Error(result.message || "삭제 실패");
+
+        if (!result || !result.ok) {
+          const message = result && result.message ? String(result.message) : "삭제 실패";
+
+          if (/not\s*found|없|존재하지|대상/i.test(message)) {
+            addDebugLog("Delete record treated as success because server target is already missing", { id, message });
+          } else {
+            throw new Error(message);
+          }
+        }
+
+        records = records.filter(record => record.id !== id);
+        deletingRecordIds.delete(id);
+        renderAll();
+        saveCache();
         setStatus("장부 기록 삭제 완료", "ok");
       } catch (error) {
         console.error(error);
-        records = previousRecords;
+        deletingRecordIds.delete(id);
         renderAll();
         saveCache();
-        setStatus("장부 기록 삭제 실패: 삭제를 되돌렸습니다.", "error");
+        setStatus(`장부 기록 삭제 실패: 화면 기록은 유지했습니다. ${error.message || error}`, "error");
       }
     }
 
