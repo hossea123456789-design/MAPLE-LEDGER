@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v63</title>
+  <title>메이플스토리 장부 앱 v64</title>
   <style>
     :root {
       --bg: #020617;
@@ -1851,6 +1851,29 @@
       border-radius: 999px;
     }
 
+  
+    .record.sync-error {
+      border-left: 3px solid var(--danger);
+      background: rgba(239, 68, 68, 0.06);
+    }
+
+    .record.sync-error .record-comment::after {
+      content: " · 저장 실패";
+      color: var(--danger);
+      font-weight: 900;
+    }
+
+    .delete.retry {
+      width: auto;
+      min-width: 68px;
+      padding: 0 10px;
+      font-size: 11px;
+      border-radius: 999px;
+      color: var(--gold);
+      border: 1px solid rgba(250, 204, 21, 0.35);
+      background: rgba(250, 204, 21, 0.08);
+    }
+
   </style>
 </head>
 <body>
@@ -1864,7 +1887,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v63</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v64</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -2342,6 +2365,10 @@
     let currentOcrImage = null;
     let currentOcrRawText = "";
     let deletingRecordIds = new Set();
+    let ledgerOutbox = [];
+    let isProcessingLedgerOutbox = false;
+    let ledgerOutboxProcessTimer = null;
+    const LEDGER_OUTBOX_KEY = "maple-ledger-outbox-v1";
     let sheetWriteQueue = Promise.resolve();
     let pendingSheetWriteCount = 0;
     let activeSheetWriteLabel = "";
@@ -2453,10 +2480,20 @@
       const el = $("syncQueueStatus");
       if (!el) return;
 
-      if (pendingSheetWriteCount > 0) {
+      const outboxWaiting = ledgerOutbox.filter(item => item && !item.failed).length;
+      const outboxFailed = ledgerOutbox.filter(item => item && item.failed).length;
+
+      if (pendingSheetWriteCount > 0 || isProcessingLedgerOutbox) {
+        const total = Math.max(pendingSheetWriteCount, outboxWaiting);
         el.textContent = activeSheetWriteLabel
-          ? `저장 중 ${pendingSheetWriteCount}건 · ${activeSheetWriteLabel}`
-          : `저장 대기 ${pendingSheetWriteCount}건`;
+          ? `저장 중 ${total || 1}건 · ${activeSheetWriteLabel}`
+          : `저장 중 ${total || 1}건`;
+        el.className = "sync-queue-status busy";
+      } else if (outboxFailed > 0) {
+        el.textContent = `저장 실패 ${outboxFailed}건 · 재시도 필요`;
+        el.className = "sync-queue-status error";
+      } else if (outboxWaiting > 0) {
+        el.textContent = `저장 대기 ${outboxWaiting}건`;
         el.className = "sync-queue-status busy";
       } else if (lastSheetWriteError) {
         el.textContent = "마지막 저장 오류 있음";
@@ -2808,6 +2845,227 @@
       $("monthlyNet").textContent = formatEok(income - expense);
     }
 
+    function normalizeLedgerOutbox(raw) {
+      if (!Array.isArray(raw)) return [];
+
+      return raw
+        .filter(item => item && item.kind === "addRecord" && item.tempId && item.payload)
+        .map(item => ({
+          kind: "addRecord",
+          tempId: String(item.tempId),
+          label: item.label || "장부 기록 저장",
+          payload: {
+            action: "addRecord",
+            type: item.payload.type,
+            amount: Number(item.payload.amount || 0),
+            category: item.payload.category || "",
+            comment: item.payload.comment || "",
+          },
+          createdAt: item.createdAt || new Date().toISOString(),
+          failed: Boolean(item.failed),
+          error: item.error || "",
+        }));
+    }
+
+    function loadLedgerOutbox() {
+      try {
+        const raw = localStorage.getItem(LEDGER_OUTBOX_KEY);
+        ledgerOutbox = normalizeLedgerOutbox(raw ? JSON.parse(raw) : []);
+      } catch (error) {
+        addDebugLog("Ledger outbox load failed", { message: error.message || String(error) });
+        ledgerOutbox = [];
+      }
+
+      return ledgerOutbox;
+    }
+
+    function saveLedgerOutbox() {
+      try {
+        localStorage.setItem(LEDGER_OUTBOX_KEY, JSON.stringify(ledgerOutbox));
+      } catch (error) {
+        addDebugLog("Ledger outbox save failed", { message: error.message || String(error) });
+      }
+      updateSheetWriteQueueStatus();
+    }
+
+    function getOutboxItemByTempId(tempId) {
+      return ledgerOutbox.find(item => item.tempId === tempId);
+    }
+
+    function applyLedgerOutboxToRecords() {
+      const existingIds = new Set(records.map(record => String(record.id || "")));
+
+      ledgerOutbox.forEach(item => {
+        const found = records.find(record => record.id === item.tempId);
+
+        if (found) {
+          found.pending = true;
+          found.syncError = Boolean(item.failed);
+          found.syncErrorMessage = item.error || "";
+          return;
+        }
+
+        if (!existingIds.has(item.tempId)) {
+          records.unshift({
+            id: item.tempId,
+            created_at: item.createdAt,
+            type: item.payload.type,
+            amount: Number(item.payload.amount || 0),
+            category: item.payload.category,
+            comment: item.payload.comment,
+            pending: true,
+            syncError: Boolean(item.failed),
+            syncErrorMessage: item.error || "",
+          });
+          existingIds.add(item.tempId);
+        }
+      });
+    }
+
+    function enqueueLedgerAddRecord(tempRecord, label = "장부 기록 저장") {
+      const exists = ledgerOutbox.some(item => item.tempId === tempRecord.id);
+      if (!exists) {
+        ledgerOutbox.push({
+          kind: "addRecord",
+          tempId: tempRecord.id,
+          label,
+          payload: {
+            action: "addRecord",
+            type: tempRecord.type,
+            amount: Number(tempRecord.amount || 0),
+            category: tempRecord.category,
+            comment: tempRecord.comment || "",
+          },
+          createdAt: tempRecord.created_at,
+          failed: false,
+          error: "",
+        });
+        saveLedgerOutbox();
+      }
+
+      scheduleLedgerOutboxProcessing();
+    }
+
+    function scheduleLedgerOutboxProcessing() {
+      if (ledgerOutboxProcessTimer) clearTimeout(ledgerOutboxProcessTimer);
+      ledgerOutboxProcessTimer = setTimeout(() => {
+        processLedgerOutbox();
+      }, 80);
+    }
+
+    async function processLedgerOutbox() {
+      if (isProcessingLedgerOutbox) return;
+
+      isProcessingLedgerOutbox = true;
+      updateSheetWriteQueueStatus();
+
+      try {
+        while (true) {
+          const item = ledgerOutbox.find(entry => entry.kind === "addRecord" && !entry.failed);
+          if (!item) break;
+
+          const localRecord = records.find(record => record.id === item.tempId);
+          if (!localRecord) {
+            ledgerOutbox = ledgerOutbox.filter(entry => entry.tempId !== item.tempId);
+            saveLedgerOutbox();
+            continue;
+          }
+
+          localRecord.pending = true;
+          localRecord.syncError = false;
+          localRecord.syncErrorMessage = "";
+          renderAll();
+          saveCache();
+
+          try {
+            const result = await enqueueSheetWrite(item.label, () => apiGetWithRetry(item.payload, 30000, 2));
+            if (!result || !result.ok) throw new Error(result && result.message ? result.message : "저장 실패");
+
+            const savedRecord = result.record || {
+              ...localRecord,
+              id: result.id || item.tempId,
+              pending: false,
+              syncError: false,
+              syncErrorMessage: "",
+            };
+
+            records = records.map(record => record.id === item.tempId ? {
+              ...savedRecord,
+              pending: false,
+              syncError: false,
+              syncErrorMessage: "",
+            } : record);
+
+            ledgerOutbox = ledgerOutbox.filter(entry => entry.tempId !== item.tempId);
+            saveLedgerOutbox();
+            renderAll();
+            saveCache();
+            setStatus("장부 기록 저장 완료", "ok");
+          } catch (error) {
+            item.failed = true;
+            item.error = error.message || String(error);
+            const failedRecord = records.find(record => record.id === item.tempId);
+            if (failedRecord) {
+              failedRecord.pending = true;
+              failedRecord.syncError = true;
+              failedRecord.syncErrorMessage = item.error;
+            }
+            saveLedgerOutbox();
+            renderAll();
+            saveCache();
+            setStatus(`장부 기록 저장 실패: 화면 기록은 보존했습니다. 재시도할 수 있습니다. ${item.error}`, "error");
+            break;
+          }
+        }
+      } finally {
+        isProcessingLedgerOutbox = false;
+        updateSheetWriteQueueStatus();
+      }
+    }
+
+    window.retryLedgerOutboxRecord = function(tempId) {
+      const item = getOutboxItemByTempId(tempId);
+
+      if (!item) {
+        setStatus("재시도할 저장 대기 기록을 찾지 못했습니다.", "error");
+        return;
+      }
+
+      item.failed = false;
+      item.error = "";
+
+      const record = records.find(entry => entry.id === tempId);
+      if (record) {
+        record.pending = true;
+        record.syncError = false;
+        record.syncErrorMessage = "";
+      }
+
+      saveLedgerOutbox();
+      renderAll();
+      saveCache();
+      setStatus("저장 실패 기록을 다시 시도합니다...");
+      scheduleLedgerOutboxProcessing();
+    }
+
+    function removeLedgerOutboxItem(tempId) {
+      const before = ledgerOutbox.length;
+      ledgerOutbox = ledgerOutbox.filter(item => item.tempId !== tempId);
+      if (before !== ledgerOutbox.length) saveLedgerOutbox();
+    }
+
+    function renderRecordActionButton(record) {
+      if (record.syncError && record.pending) {
+        return `<button class="delete retry" type="button" onclick="retryLedgerOutboxRecord('${record.id}')">재시도</button>`;
+      }
+
+      if (deletingRecordIds.has(record.id)) {
+        return `<button class="delete deleting" type="button" disabled>삭제 중</button>`;
+      }
+
+      return `<button class="delete" type="button" onclick="deleteRecord('${record.id}')">×</button>`;
+    }
+
     function renderRecords() {
       const list = $("recordList");
       const month = $("monthFilter").value;
@@ -2823,7 +3081,7 @@
       list.innerHTML = filtered.map(r => {
         const isIncome = r.type === "income";
         return `
-          <div class="record ${r.pending ? "pending" : ""} ${deletingRecordIds.has(r.id) ? "deleting" : ""}">
+          <div class="record ${r.pending ? "pending" : ""} ${r.syncError ? "sync-error" : ""} ${deletingRecordIds.has(r.id) ? "deleting" : ""}">
             <div class="time">${formatDateTime(r.created_at)}</div>
             <div><span class="badge ${isIncome ? "income" : "expense"}">${typeIcon(r.type)}${isIncome ? "+ 수입" : "- 지출"}</span></div>
             <div class="record-main">
@@ -2831,7 +3089,7 @@
               <span class="record-comment">${escapeHtml(r.comment || "코멘트 없음")}</span>
             </div>
             <div class="record-amount ${isIncome ? "orange" : "blue"}">${isIncome ? "+" : "-"}${formatEok(r.amount)}</div>
-            <button class="delete ${deletingRecordIds.has(r.id) ? "deleting" : ""}" onclick="deleteRecord('${r.id}')" ${deletingRecordIds.has(r.id) ? "disabled" : ""}>${deletingRecordIds.has(r.id) ? "삭제 중" : "×"}</button>
+            ${renderRecordActionButton(r)}
           </div>
         `;
       }).join("");
@@ -4575,7 +4833,7 @@
       renderOcrCategoryOptions();
     }
 
-    async function addReconcileRecord() {
+    function addReconcileRecord() {
       const actualMeso = getActualMesoInputValue();
       const ledgerMeso = getLedgerBalanceMeso();
       const diffMeso = actualMeso - ledgerMeso;
@@ -4611,7 +4869,7 @@
 
       const amountEok = Math.abs(mesoToEok(amountMeso));
 
-      const tempId = `temp-reconcile-${Date.now()}`;
+      const tempId = makeTempId("temp-reconcile");
       const tempRecord = {
         id: tempId,
         created_at: new Date().toISOString(),
@@ -4620,41 +4878,15 @@
         category,
         comment,
         pending: true,
+        syncError: false,
+        syncErrorMessage: "",
       };
 
       records = [tempRecord, ...records];
       renderAll();
       saveCache();
-      setStatus(`${type === "income" ? "수입" : "지출"} 기록을 화면에 먼저 반영했습니다. 구글 시트 저장 중...`);
-
-      try {
-        const result = await enqueueSheetWrite("잔액/수입·지출 기록 저장", () => apiGetWithRetry({
-          action: "addRecord",
-          type,
-          amount: amountEok,
-          category,
-          comment,
-        }, 30000, 2));
-
-        if (!result.ok) throw new Error(result.message || "OCR 기록 저장 실패");
-
-        const savedRecord = result.record || {
-          ...tempRecord,
-          id: result.id || tempId,
-          pending: false,
-        };
-
-        records = records.map(record => record.id === tempId ? { ...savedRecord, pending: false } : record);
-        renderAll();
-        saveCache();
-        setStatus(`OCR 기록 완료: ${type === "income" ? "+" : "-"}${formatMesoKorean(amountMeso)}`, "ok");
-      } catch (error) {
-        console.error(error);
-        records = records.filter(record => record.id !== tempId);
-        renderAll();
-        saveCache();
-        setStatus("OCR 기록 저장 실패: 입력값을 되돌렸습니다.", "error");
-      }
+      enqueueLedgerAddRecord(tempRecord, "잔액/수입·지출 기록 저장");
+      setStatus(`${type === "income" ? "수입" : "지출"} 기록을 즉시 화면에 반영했습니다. 구글 시트에는 백그라운드로 저장합니다.`, "ok");
     }
 
     function clearOcrReconcile() {
@@ -5251,6 +5483,7 @@
           extraItems,
           settings,
           globalCashPerEok,
+          ledgerOutbox,
           savedAt: new Date().toISOString(),
         }));
       } catch (error) {
@@ -5271,6 +5504,9 @@
         settings = cache.settings || {};
         extraItems = parseExtraItemsFromSettings(settings);
         if (!extraItems.length) extraItems = cache.extraItems || [];
+        ledgerOutbox = normalizeLedgerOutbox(cache.ledgerOutbox || []);
+        if (!ledgerOutbox.length) loadLedgerOutbox();
+        applyLedgerOutboxToRecords();
         globalCashPerEok = Number(cache.globalCashPerEok || settings.cash_per_eok || 0);
         if (globalCashPerEok) {
           applyGlobalCashPerEok(globalCashPerEok, { updateInputs: true, save: false });
@@ -5296,8 +5532,8 @@
           setStatus("구글 시트와 동기화 중...");
         }
 
-        await waitForSheetWriteQueue();
-
+        loadLedgerOutbox();
+        applyLedgerOutboxToRecords();
         const pendingRecordsBeforeLoad = records.filter(record => record && record.pending);
         const pendingPurchasesBeforeLoad = mesoPurchases.filter(item => item && item.pending);
 
@@ -5319,6 +5555,7 @@
 
         renderAll();
         saveCache();
+        scheduleLedgerOutboxProcessing();
         setStatus(`구글 시트 연결 완료 · 장부 ${records.length}건 · 메소구매 ${mesoPurchases.length}건`, "ok");
       } catch (error) {
         console.error(error);
@@ -5333,7 +5570,7 @@
       return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     }
 
-    async function addRecord() {
+    function addRecord() {
       const amount = Number($("amountInput").value);
       const category = $("categorySelect").value;
       const comment = $("commentInput").value.trim();
@@ -5349,6 +5586,8 @@
         category,
         comment,
         pending: true,
+        syncError: false,
+        syncErrorMessage: "",
       };
 
       records = [tempRecord, ...records];
@@ -5356,36 +5595,8 @@
       $("commentInput").value = "";
       renderAll();
       saveCache();
-      setStatus("장부 기록을 화면에 먼저 반영했습니다. 구글 시트 저장 중...");
-
-      try {
-        const result = await enqueueSheetWrite("장부 기록 저장", () => apiGetWithRetry({
-          action: "addRecord",
-          type: tempRecord.type,
-          amount,
-          category,
-          comment
-        }, 30000, 2));
-
-        if (!result.ok) throw new Error(result.message || "저장 실패");
-
-        const savedRecord = result.record || {
-          ...tempRecord,
-          id: result.id || tempId,
-          pending: false,
-        };
-
-        records = records.map(record => record.id === tempId ? { ...savedRecord, pending: false } : record);
-        renderAll();
-        saveCache();
-        setStatus("장부 기록 저장 완료", "ok");
-      } catch (error) {
-        console.error(error);
-        records = records.filter(record => record.id !== tempId);
-        renderAll();
-        saveCache();
-        setStatus("장부 기록 저장 실패: 입력값을 되돌렸습니다.", "error");
-      }
+      enqueueLedgerAddRecord(tempRecord, "장부 기록 저장");
+      setStatus("장부 기록을 즉시 화면에 반영했습니다. 구글 시트에는 백그라운드로 저장합니다.", "ok");
     }
 
     window.deleteRecord = async function(id) {
@@ -5397,6 +5608,15 @@
       }
 
       const target = records.find(record => record.id === id);
+
+      if (target && target.pending && getOutboxItemByTempId(id)) {
+        removeLedgerOutboxItem(id);
+        records = records.filter(record => record.id !== id);
+        renderAll();
+        saveCache();
+        setStatus("아직 구글 시트에 저장되지 않은 대기 기록을 취소했습니다.", "ok");
+        return;
+      }
 
       if (!target) {
         addDebugLog("Delete record skipped: not found in local records", { id });
