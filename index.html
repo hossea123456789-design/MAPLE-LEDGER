@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v61</title>
+  <title>메이플스토리 장부 앱 v62</title>
   <style>
     :root {
       --bg: #020617;
@@ -1793,6 +1793,33 @@
       }
     }
 
+  
+    .sync-queue-status {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      background: rgba(15, 23, 42, 0.55);
+      color: #bfdbfe;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .sync-queue-status.busy {
+      border-color: rgba(250, 204, 21, 0.45);
+      color: #fde68a;
+      background: rgba(113, 63, 18, 0.22);
+    }
+
+    .sync-queue-status.error {
+      border-color: rgba(248, 113, 113, 0.45);
+      color: #fecaca;
+      background: rgba(127, 29, 29, 0.22);
+    }
+
   </style>
 </head>
 <body>
@@ -1806,7 +1833,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v61</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v62</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -1818,6 +1845,7 @@
 
     <div class="sync-bar">
       <span id="syncStatus">구글 시트 연결 준비 중...</span>
+      <span id="syncQueueStatus" class="sync-queue-status">저장 대기 없음</span>
       <button class="secondary-button" id="refreshButton" type="button">새로고침</button>
     </div>
 
@@ -1861,7 +1889,7 @@
             <input id="actualMesoRawInput" inputmode="numeric" placeholder="예: 5473210000 또는 54억7321만" />
             <div class="hint">로컬 Tesseract OCR을 사용합니다. 실제값은 아래 억/만/원 칸에서 최종 확인하세요.</div>
           </div>
-          <button class="secondary-button" id="runOcrButton" type="button">외부 로컬 로컬 OCR 실행</button>
+          <button class="secondary-button" id="runOcrButton" type="button">로컬 OCR 실행</button>
         </div>
 
         <div class="meso-unit-grid">
@@ -2282,6 +2310,10 @@
     let isSyncingCashPerEok = false;
     let currentOcrImage = null;
     let currentOcrRawText = "";
+    let sheetWriteQueue = Promise.resolve();
+    let pendingSheetWriteCount = 0;
+    let activeSheetWriteLabel = "";
+    let lastSheetWriteError = "";
     let digitTemplates = null;
     const DIGIT_TEMPLATE_SETTING_KEY = "digit_templates_json";
     const DIGIT_TEMPLATE_LOCAL_KEY = "maple-ledger-digit-templates-v1";
@@ -2363,11 +2395,124 @@
 
     function setLoading(value) {
       isLoading = value;
-      $("saveRecordButton").disabled = value;
-      $("refreshButton").disabled = value;
-      $("saveMesoPurchaseButton").disabled = value;
-      if ($("addIncomeCategory")) $("addIncomeCategory").disabled = value;
-      if ($("addExpenseCategory")) $("addExpenseCategory").disabled = value;
+      setButtonsDisabled([
+        "saveRecordButton",
+        "refreshButton",
+        "saveMesoPurchaseButton",
+        "addReconcileRecordButton",
+        "saveAllEquipmentButton",
+        "resetEquipmentButton",
+        "addIncomeCategory",
+        "addExpenseCategory",
+        "saveDigitTemplatesButton",
+        "loadDigitTemplatesButton"
+      ], value);
+      updateSheetWriteQueueStatus();
+    }
+
+    function setButtonsDisabled(ids, disabled) {
+      ids.forEach(id => {
+        const el = $(id);
+        if (el) el.disabled = disabled;
+      });
+    }
+
+    function updateSheetWriteQueueStatus() {
+      const el = $("syncQueueStatus");
+      if (!el) return;
+
+      if (pendingSheetWriteCount > 0) {
+        el.textContent = activeSheetWriteLabel
+          ? `저장 중 ${pendingSheetWriteCount}건 · ${activeSheetWriteLabel}`
+          : `저장 대기 ${pendingSheetWriteCount}건`;
+        el.className = "sync-queue-status busy";
+      } else if (lastSheetWriteError) {
+        el.textContent = "마지막 저장 오류 있음";
+        el.className = "sync-queue-status error";
+      } else {
+        el.textContent = "저장 대기 없음";
+        el.className = "sync-queue-status";
+      }
+    }
+
+    function delay(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async function apiGetWithRetry(params, timeoutMs = 30000, retries = 2) {
+      let lastError = null;
+
+      for (let attempt = 0; attempt <= retries; attempt += 1) {
+        try {
+          if (attempt > 0) {
+            addDebugLog("API retry", { action: params && params.action, attempt: attempt + 1 });
+            setStatus(`구글 시트 재시도 중... ${attempt + 1}/${retries + 1}`);
+          }
+
+          return await apiGet(params, timeoutMs);
+        } catch (error) {
+          lastError = error;
+          addDebugLog("API attempt failed", {
+            action: params && params.action,
+            attempt: attempt + 1,
+            message: error.message || String(error),
+          });
+
+          if (attempt < retries) await delay(700 + attempt * 900);
+        }
+      }
+
+      throw lastError || new Error("구글 시트 요청 실패");
+    }
+
+    async function enqueueSheetWrite(label, task) {
+      pendingSheetWriteCount += 1;
+      lastSheetWriteError = "";
+      updateSheetWriteQueueStatus();
+
+      const run = async () => {
+        activeSheetWriteLabel = label;
+        updateSheetWriteQueueStatus();
+        addDebugLog("Sheet write queued task start", { label, pendingSheetWriteCount });
+
+        try {
+          const result = await task();
+          addDebugLog("Sheet write queued task done", { label, ok: result && result.ok });
+          return result;
+        } catch (error) {
+          lastSheetWriteError = error.message || String(error);
+          addDebugLog("Sheet write queued task failed", { label, message: lastSheetWriteError, stack: error.stack || "" });
+          throw error;
+        } finally {
+          activeSheetWriteLabel = "";
+          updateSheetWriteQueueStatus();
+        }
+      };
+
+      const queued = sheetWriteQueue.catch(() => {}).then(run);
+      sheetWriteQueue = queued.catch(() => {});
+
+      try {
+        return await queued;
+      } finally {
+        pendingSheetWriteCount = Math.max(0, pendingSheetWriteCount - 1);
+        updateSheetWriteQueueStatus();
+      }
+    }
+
+    async function waitForSheetWriteQueue() {
+      if (pendingSheetWriteCount <= 0) return;
+      setStatus(`저장 대기 ${pendingSheetWriteCount}건 처리 후 동기화합니다...`);
+      await sheetWriteQueue.catch(() => {});
+    }
+
+    function mergeServerListWithPending(serverList, currentList) {
+      const pending = (currentList || []).filter(item => item && item.pending);
+      if (!pending.length) return serverList || [];
+
+      const serverIds = new Set((serverList || []).map(item => String(item.id || "")));
+      const safePending = pending.filter(item => !serverIds.has(String(item.id || "")));
+      return [...safePending, ...(serverList || [])];
     }
 
     const debugLogs = [];
@@ -2689,7 +2834,7 @@
       setStatus("메소 구매 기록을 삭제 중입니다...");
 
       try {
-        const result = await apiGet({ action: "deleteMesoPurchase", id });
+        const result = await enqueueSheetWrite("메소 구매 기록 삭제", () => apiGetWithRetry({ action: "deleteMesoPurchase", id }, 30000, 2));
 
         if (!result.ok) throw new Error(result.message || "메소 구매 기록 삭제 실패");
 
@@ -3064,14 +3209,14 @@
           const item = changedEquipmentItems[i];
           setStatus(`장비 저장 중... ${i + 1}/${totalSaveCount} ${item.slot_name || item.slot_id}`);
 
-          const result = await apiGet({
+          const result = await enqueueSheetWrite(`장비 저장 ${item.slot_name || item.slot_id}`, () => apiGetWithRetry({
             action: "updateEquipment",
             slot_id: item.slot_id,
             slot_name: item.slot_name,
             item_name: item.item_name || "",
             price_eok: Number(item.price_eok || 0),
             is_untradeable: Boolean(item.is_untradeable),
-          });
+          }, 30000, 2));
 
           if (!result.ok) {
             throw new Error(`${item.slot_name || item.slot_id} 저장 실패: ${result.message || "unknown"}`);
@@ -3081,11 +3226,11 @@
         if (shouldSaveExtraItems) {
           setStatus(`추가 항목 저장 중... ${changedEquipmentItems.length + 1}/${totalSaveCount}`);
 
-          const extraResult = await apiGet({
+          const extraResult = await enqueueSheetWrite("추가 항목 저장", () => apiGetWithRetry({
             action: "updateSetting",
             key: "extra_items_json",
             value: serializeExtraItems(),
-          });
+          }, 30000, 2));
 
           if (!extraResult.ok) {
             throw new Error(`추가 항목 저장 실패: ${extraResult.message || "unknown"}`);
@@ -3094,7 +3239,7 @@
 
         setStatus("저장 후 데이터 확인 중...");
 
-        const refreshed = await apiGet({ action: "loadAll" });
+        const refreshed = await apiGetWithRetry({ action: "loadAll" }, 30000, 2);
         if (!refreshed.ok) throw new Error(refreshed.message || "저장 후 새로고침 실패");
 
         equipmentItems = refreshed.equipmentItems || equipmentItems;
@@ -3135,20 +3280,20 @@
       setStatus("장비 현황을 초기화하는 중...");
 
       try {
-        const result = await apiGet({ action: "resetEquipment" });
+        const result = await enqueueSheetWrite("장비 초기화", () => apiGetWithRetry({ action: "resetEquipment" }, 30000, 2));
         if (!result.ok) throw new Error(result.message || "장비 초기화 실패");
 
-        const clearExtraResult = await apiGet({
+        const clearExtraResult = await enqueueSheetWrite("추가 항목 초기화", () => apiGetWithRetry({
           action: "updateSetting",
           key: "extra_items_json",
           value: "[]",
-        });
+        }, 30000, 2));
 
         if (!clearExtraResult.ok) {
           throw new Error(clearExtraResult.message || "추가 항목 초기화 실패");
         }
 
-        const refreshed = await apiGet({ action: "loadAll" });
+        const refreshed = await apiGetWithRetry({ action: "loadAll" }, 30000, 2);
         if (!refreshed.ok) throw new Error(refreshed.message || "초기화 후 새로고침 실패");
 
         equipmentItems = refreshed.equipmentItems || equipmentItems;
@@ -4451,13 +4596,13 @@
       setStatus(`${type === "income" ? "수입" : "지출"} 기록을 화면에 먼저 반영했습니다. 구글 시트 저장 중...`);
 
       try {
-        const result = await apiGet({
+        const result = await enqueueSheetWrite("잔액/수입·지출 기록 저장", () => apiGetWithRetry({
           action: "addRecord",
           type,
           amount: amountEok,
           category,
           comment,
-        });
+        }, 30000, 2));
 
         if (!result.ok) throw new Error(result.message || "OCR 기록 저장 실패");
 
@@ -5007,7 +5152,7 @@
 
     async function loadDigitTemplatesFromSheet() {
       setStatus("구글 시트에서 숫자 템플릿을 불러오는 중...");
-      const result = await apiGet({ action: "listSettings" }, 30000);
+      const result = await apiGetWithRetry({ action: "listSettings" }, 30000, 2);
 
       if (!result.ok) throw new Error(result.message || "설정 불러오기 실패");
 
@@ -5119,13 +5264,18 @@
           setStatus("구글 시트와 동기화 중...");
         }
 
-        const result = await apiGet({ action: "loadAll" });
+        await waitForSheetWriteQueue();
+
+        const pendingRecordsBeforeLoad = records.filter(record => record && record.pending);
+        const pendingPurchasesBeforeLoad = mesoPurchases.filter(item => item && item.pending);
+
+        const result = await apiGetWithRetry({ action: "loadAll" }, 30000, 2);
 
         if (!result.ok) throw new Error(result.message || "loadAll 실패");
 
-        records = result.records || [];
+        records = mergeServerListWithPending(result.records || [], pendingRecordsBeforeLoad);
         categories = result.categories || DEFAULT_CATEGORIES;
-        mesoPurchases = result.mesoPurchases || [];
+        mesoPurchases = mergeServerListWithPending(result.mesoPurchases || [], pendingPurchasesBeforeLoad);
         equipmentItems = result.equipmentItems || [];
         settings = result.settings || {};
         extraItems = parseExtraItemsFromSettings(settings);
@@ -5177,13 +5327,13 @@
       setStatus("장부 기록을 화면에 먼저 반영했습니다. 구글 시트 저장 중...");
 
       try {
-        const result = await apiGet({
+        const result = await enqueueSheetWrite("장부 기록 저장", () => apiGetWithRetry({
           action: "addRecord",
           type: tempRecord.type,
           amount,
           category,
           comment
-        });
+        }, 30000, 2));
 
         if (!result.ok) throw new Error(result.message || "저장 실패");
 
@@ -5214,7 +5364,7 @@
       setStatus("장부 기록을 화면에서 먼저 삭제했습니다. 구글 시트 반영 중...");
 
       try {
-        const result = await apiGet({ action: "deleteRecord", id });
+        const result = await enqueueSheetWrite("장부 기록 삭제", () => apiGetWithRetry({ action: "deleteRecord", id }, 30000, 2));
         if (!result.ok) throw new Error(result.message || "삭제 실패");
         setStatus("장부 기록 삭제 완료", "ok");
       } catch (error) {
@@ -5266,7 +5416,7 @@
       setStatus("메소 구매와 수입 기록을 화면에 먼저 반영했습니다. 구글 시트 저장 중...");
 
       try {
-        const result = await apiGet({
+        const result = await enqueueSheetWrite("메소 구매 기록 저장", () => apiGetWithRetry({
           action: "addMesoPurchase",
           cash_per_eok: cashPerEok,
           meso_amount: mesoAmount,
@@ -5274,7 +5424,7 @@
           raw_account_text: rawAccountText,
           account_only: accountOnly,
           memo
-        });
+        }, 30000, 2));
 
         if (!result.ok) throw new Error(result.message || "저장 실패");
 
@@ -5312,7 +5462,7 @@
       setStatus("메소 구매 기록을 화면에서 먼저 삭제했습니다. 구글 시트 반영 중...");
 
       try {
-        const result = await apiGet({ action: "deleteMesoPurchase", id });
+        const result = await enqueueSheetWrite("메소 구매 기록 삭제", () => apiGetWithRetry({ action: "deleteMesoPurchase", id }, 30000, 2));
         if (!result.ok) throw new Error(result.message || "삭제 실패");
         setStatus("메소 구매 기록 삭제 완료", "ok");
       } catch (error) {
@@ -5345,11 +5495,11 @@
       setStatus("카테고리를 화면에 먼저 반영했습니다. 구글 시트 저장 중...");
 
       try {
-        const result = await apiGet({
+        const result = await enqueueSheetWrite("카테고리 추가", () => apiGetWithRetry({
           action: "addCategory",
           type,
           name
-        });
+        }, 30000, 2));
 
         if (!result.ok) throw new Error(result.message || "카테고리 추가 실패");
         setStatus("카테고리 추가 완료", "ok");
@@ -5378,11 +5528,11 @@
       setStatus("카테고리를 화면에서 먼저 삭제했습니다. 구글 시트 반영 중...");
 
       try {
-        const result = await apiGet({
+        const result = await enqueueSheetWrite("카테고리 삭제", () => apiGetWithRetry({
           action: "deleteCategory",
           type,
           name
-        });
+        }, 30000, 2));
 
         if (!result.ok) throw new Error(result.message || "카테고리 삭제 실패");
         setStatus("카테고리 삭제 완료", "ok");
