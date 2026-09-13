@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v66</title>
+  <title>메이플스토리 장부 앱 v67</title>
   <style>
     :root {
       --bg: #020617;
@@ -1887,7 +1887,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v66</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v67</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -1941,7 +1941,7 @@
           <div class="field">
             <label>OCR 인식/직접 입력 메소</label>
             <input id="actualMesoRawInput" inputmode="numeric" placeholder="예: 5473210000 또는 54억7321만" />
-            <div class="hint">숫자 템플릿 매칭을 먼저 시도하고, 부족하면 로컬 Tesseract OCR을 보조로 사용합니다. 실제값은 아래 억/만/원 칸에서 최종 확인하세요.</div>
+            <div class="hint">숫자 템플릿을 우선 사용하고, 부족하면 숫자 전용/단위 포함 Tesseract 결과를 서로 검증합니다. 서로 다르면 자동 반영하지 않습니다.</div>
           </div>
           <button class="secondary-button" id="runOcrButton" type="button">로컬 OCR 실행</button>
         </div>
@@ -4666,7 +4666,7 @@
       };
 
       const digitConfig = {
-        tessedit_char_whitelist: "0123456789",
+        tessedit_char_whitelist: "0123456789 ",
         preserve_interword_spaces: "1",
         tessedit_pageseg_mode: "7",
       };
@@ -4688,74 +4688,164 @@
       const digitText = digitResult?.data?.text || "";
 
       let unitText = "";
+      let unitConfidence = 0;
       try {
         const unitResult = await Tesseract.recognize(processedImage, "kor+eng", baseOptions, unitConfig);
         unitText = unitResult?.data?.text || "";
+        unitConfidence = Number(unitResult?.data?.confidence || 0);
       } catch (error) {
         addDebugLog("Tesseract unit pass failed", { message: error.message || String(error) });
       }
 
-      const mergedText = [digitText, unitText].filter(Boolean).join("\n");
-
-      addDebugLog("Tesseract recognize done", {
+      const recognition = {
         digitText,
         unitText,
-        mergedText,
-        digitConfidence: digitResult?.data?.confidence,
-      });
+        digitConfidence: Number(digitResult?.data?.confidence || 0),
+        unitConfidence,
+      };
 
-      return mergedText;
+      addDebugLog("Tesseract recognize done", recognition);
+      return recognition;
     }
 
     async function runExternalOcrSpace(processedImage) {
       return await runTesseractMesoOcr(processedImage);
     }
 
-    function parseMesoFromDigitStream(rawText) {
-      const digits = String(rawText || "").replace(/\D/g, "");
+    function makeStructuredMesoCandidate(eok, man, rest, source, rawTokens, score = 0) {
+      const e = Number(eok);
+      const m = Number(man);
+      const r = Number(rest);
 
-      if (!digits) return null;
+      if (!Number.isFinite(e) || e <= 0) return null;
+      if (!Number.isFinite(m) || m < 0 || m > 9999) return null;
+      if (!Number.isFinite(r) || r < 0 || r > 9999) return null;
 
-      if (digits.length >= 9) {
-        const eok = Number(digits.slice(0, -8));
-        const man = Number(digits.slice(-8, -4));
-        const rest = Number(digits.slice(-4));
+      return {
+        eok: e,
+        man: m,
+        rest: r,
+        meso: e * 100000000 + m * 10000 + r,
+        confidenceText: `${e.toLocaleString("ko-KR")}억 ${m.toLocaleString("ko-KR")}만 ${r.toLocaleString("ko-KR")}`,
+        rawTokens: rawTokens || "",
+        source,
+        score,
+      };
+    }
 
-        if (Number.isFinite(eok) && eok >= 0 && man >= 0 && man <= 9999 && rest >= 0 && rest <= 9999) {
-          return {
-            eok,
-            man,
-            rest,
-            meso: eok * 100000000 + man * 10000 + rest,
-            confidenceText: `${eok}억 ${man}만 ${rest}`,
-            rawTokens: digits,
-            source: "digit-stream",
-          };
-        }
+    function parseDigitOnlyTesseractText(rawText) {
+      const raw = String(rawText || "").replace(/[，,]/g, " ").trim();
+      if (!raw) return null;
+
+      const groups = raw.match(/\d+/g) || [];
+
+      // Tesseract가 "306 2263 9484"처럼 세 그룹을 유지한 경우가 가장 신뢰도가 높다.
+      if (groups.length === 3) {
+        const direct = makeStructuredMesoCandidate(groups[0], groups[1], groups[2], "tesseract-digit-groups", groups.join(" / "), 190);
+        if (direct) return direct;
+      }
+
+      // 공백을 잃고 "30622639484"처럼 한 덩어리로 읽은 경우.
+      const digits = groups.join("");
+      if (digits.length >= 9 && digits.length <= 16) {
+        return makeStructuredMesoCandidate(
+          digits.slice(0, -8),
+          digits.slice(-8, -4),
+          digits.slice(-4),
+          "tesseract-digit-stream",
+          digits,
+          170
+        );
       }
 
       return null;
     }
 
-    function parseMapleMesoWithDigitStreamFallback(rawText) {
-      const unitParsed = parseMapleMesoFromOcrText(rawText);
-      const streamParsed = parseMesoFromDigitStream(rawText);
+    function areMesoCandidatesEqual(a, b) {
+      return Boolean(a && b && a.eok === b.eok && a.man === b.man && a.rest === b.rest);
+    }
 
-      if (!streamParsed) return unitParsed;
-      if (!unitParsed || !unitParsed.meso) return streamParsed;
+    function chooseTesseractMesoCandidate(recognition) {
+      const digitText = String(recognition?.digitText || "");
+      const unitText = String(recognition?.unitText || "");
+      const digitCandidate = parseDigitOnlyTesseractText(digitText);
+      const unitCandidate = unitText ? parseMapleMesoFromOcrText(unitText) : null;
 
-      const unitDigits = String(unitParsed.rawTokens || unitParsed.confidenceText || "").replace(/\D/g, "");
-      const streamDigits = String(streamParsed.rawTokens || "").replace(/\D/g, "");
-
-      if (streamDigits.length >= unitDigits.length + 1) {
+      if (digitCandidate && unitCandidate && areMesoCandidatesEqual(digitCandidate, unitCandidate)) {
         return {
-          ...streamParsed,
-          unitParsed,
-          source: "digit-stream-preferred",
+          ok: true,
+          candidate: {
+            ...digitCandidate,
+            source: "tesseract-consensus",
+            score: Math.max(Number(digitCandidate.score || 0), Number(unitCandidate.score || 0)) + 20,
+          },
+          digitCandidate,
+          unitCandidate,
+          conflict: false,
         };
       }
 
-      return unitParsed;
+      if (digitCandidate && unitCandidate && digitCandidate.man === unitCandidate.man && digitCandidate.rest === unitCandidate.rest) {
+        const digitEok = String(digitCandidate.eok);
+        const unitEok = String(unitCandidate.eok);
+        const oneDigitLonger = Math.abs(digitEok.length - unitEok.length) === 1;
+        const prefixRelated = digitEok.startsWith(unitEok) || unitEok.startsWith(digitEok);
+
+        // 1080 vs 108처럼 억 끝 한 자리가 단위 OCR에서 누락된 전형적인 경우.
+        if (oneDigitLonger && prefixRelated) {
+          const preferred = digitEok.length > unitEok.length ? digitCandidate : unitCandidate;
+          return {
+            ok: true,
+            candidate: {
+              ...preferred,
+              source: "tesseract-eok-tail-loss-recovered",
+              score: Math.max(Number(digitCandidate.score || 0), Number(unitCandidate.score || 0)) + 10,
+            },
+            digitCandidate,
+            unitCandidate,
+            conflict: false,
+          };
+        }
+      }
+
+      if (digitCandidate && !unitCandidate) {
+        return { ok: true, candidate: digitCandidate, digitCandidate, unitCandidate: null, conflict: false };
+      }
+
+      if (!digitCandidate && unitCandidate) {
+        return { ok: true, candidate: unitCandidate, digitCandidate: null, unitCandidate, conflict: false };
+      }
+
+      if (digitCandidate && unitCandidate) {
+        return {
+          ok: false,
+          candidate: null,
+          digitCandidate,
+          unitCandidate,
+          conflict: true,
+          message: "숫자 전용 OCR과 단위 OCR 결과가 서로 달라 자동 반영하지 않았습니다.",
+        };
+      }
+
+      return {
+        ok: false,
+        candidate: null,
+        digitCandidate,
+        unitCandidate,
+        conflict: false,
+        message: "OCR에서 유효한 메소 숫자 후보를 만들지 못했습니다.",
+      };
+    }
+
+    function formatStructuredRecognitionRaw(recognition, decision = null) {
+      const lines = [];
+      const digitText = String(recognition?.digitText || "").trim();
+      const unitText = String(recognition?.unitText || "").trim();
+      if (digitText) lines.push(`숫자 전용: ${digitText}`);
+      if (unitText) lines.push(`단위 포함: ${unitText}`);
+      if (decision?.digitCandidate) lines.push(`숫자 후보: ${decision.digitCandidate.confidenceText}`);
+      if (decision?.unitCandidate) lines.push(`단위 후보: ${decision.unitCandidate.confidenceText}`);
+      return lines.join("\n");
     }
 
     function getTemplateMatchPartsFromCurrentImageCandidate(candidate) {
@@ -4900,22 +4990,35 @@
           type: processedImage && processedImage.type,
         });
 
-        currentOcrRawText = await runTesseractMesoOcr(processedImage);
-        const parsed = parseMapleMesoWithDigitStreamFallback(currentOcrRawText);
+        const recognition = await runTesseractMesoOcr(processedImage);
+        const decision = chooseTesseractMesoCandidate(recognition);
+        currentOcrRawText = formatStructuredRecognitionRaw(recognition, decision);
 
-        addDebugLog("Local OCR parsed candidate", parsed);
+        addDebugLog("Structured Tesseract decision", {
+          recognition,
+          decision,
+        });
 
         if ($("ocrRawText")) $("ocrRawText").textContent = currentOcrRawText || "OCR 결과가 없습니다.";
 
-        if (parsed && parsed.meso) {
-          applyParsedMesoToActualInputs(parsed, parsed.source && parsed.source.includes("digit-stream") ? "숫자열 보정 후보" : "로컬 OCR 후보");
-          setStatus(`로컬 OCR 후보를 입력칸에 반영했습니다: ${parsed.confidenceText}`, "ok");
-        } else {
-          setStatus("로컬 OCR에서 메소 후보를 찾지 못했습니다. 억/만/원 칸에 직접 입력해주세요.", "error");
-          if ($("ocrCandidateHint")) {
-            $("ocrCandidateHint").textContent = "OCR 원문에서 억/만/원 숫자 후보를 찾지 못했습니다.";
-          }
+        if (decision.ok && decision.candidate) {
+          const parsed = decision.candidate;
+          applyParsedMesoToActualInputs(parsed, parsed.source === "tesseract-consensus" ? "OCR 일치 후보" : "OCR 자리수 후보");
+          setStatus(`OCR 후보를 입력칸에 반영했습니다: ${parsed.confidenceText}`, "ok");
+          return;
         }
+
+        if (decision.conflict) {
+          if ($("ocrCandidateHint")) {
+            const digitText = decision.digitCandidate ? decision.digitCandidate.confidenceText : "없음";
+            const unitText = decision.unitCandidate ? decision.unitCandidate.confidenceText : "없음";
+            $("ocrCandidateHint").textContent = `OCR 후보 충돌 · 숫자 전용: ${digitText} · 단위 포함: ${unitText} · 자동 반영하지 않았습니다.`;
+          }
+          setStatus("OCR 두 결과가 서로 달라 자동 반영하지 않았습니다. 실제 화면 값을 확인해주세요.", "error");
+          return;
+        }
+
+        setStatus("로컬 OCR에서 메소 후보를 찾지 못했습니다. 억/만/원 칸에 직접 입력해주세요.", "error");
       } catch (error) {
         console.error(error);
         addDebugLog("Local OCR failed", {
@@ -5254,7 +5357,6 @@
           const density = count / Math.max(1, cw * ch);
           const aspect = cw / Math.max(1, ch);
 
-          // 숫자 후보 필터. 한글 단위/아이콘/테두리 제거 목적.
           if (
             count >= 10 &&
             ch >= Math.max(10, h * 0.10) &&
@@ -5262,7 +5364,7 @@
             cw >= 3 &&
             cw <= h * 0.55 &&
             aspect >= 0.15 &&
-            aspect <= 0.82 &&
+            aspect <= 0.86 &&
             density >= 0.10
           ) {
             components.push({ x: minX, y: minY, w: cw, h: ch, count, density, aspect });
@@ -5270,15 +5372,35 @@
         }
       }
 
-      return components
+      const deduped = components
         .sort((a, b) => a.x - b.x)
         .filter((component, index, list) => {
-          // 매우 가까운 중복 조각 제거
           const prev = list[index - 1];
           if (!prev) return true;
           const overlapX = Math.max(0, Math.min(component.x + component.w, prev.x + prev.w) - Math.max(component.x, prev.x));
           return overlapX < Math.min(component.w, prev.w) * 0.6;
         });
+
+      if (deduped.length < 3) return deduped;
+
+      // 메이플 숫자는 같은 baseline에서 거의 같은 높이로 그려진다.
+      // 억/만 한글 조각은 숫자보다 낮거나 위아래로 분리되는 경우가 많아
+      // 가장 큰 숫자 높이를 기준으로 한 번 더 걸러준다.
+      const maxHeight = Math.max(...deduped.map(component => component.h));
+      const heightAligned = deduped.filter(component => component.h >= maxHeight * 0.78);
+
+      if (heightAligned.length < 3) return deduped;
+
+      const centers = heightAligned
+        .map(component => component.y + component.h / 2)
+        .sort((a, b) => a - b);
+      const medianCenter = centers[Math.floor(centers.length / 2)];
+      const baselineAligned = heightAligned.filter(component =>
+        Math.abs((component.y + component.h / 2) - medianCenter) <= maxHeight * 0.28
+      );
+
+      return (baselineAligned.length >= 3 ? baselineAligned : heightAligned)
+        .sort((a, b) => a.x - b.x);
     }
 
     function normalizeDigitComponent(canvas, component, targetW = 16, targetH = 24) {
