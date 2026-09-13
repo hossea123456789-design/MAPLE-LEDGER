@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v64</title>
+  <title>메이플스토리 장부 앱 v65</title>
   <style>
     :root {
       --bg: #020617;
@@ -1887,7 +1887,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v64</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v65</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -1941,7 +1941,7 @@
           <div class="field">
             <label>OCR 인식/직접 입력 메소</label>
             <input id="actualMesoRawInput" inputmode="numeric" placeholder="예: 5473210000 또는 54억7321만" />
-            <div class="hint">로컬 Tesseract OCR을 사용합니다. 실제값은 아래 억/만/원 칸에서 최종 확인하세요.</div>
+            <div class="hint">숫자 템플릿 매칭을 먼저 시도하고, 부족하면 로컬 Tesseract OCR을 보조로 사용합니다. 실제값은 아래 억/만/원 칸에서 최종 확인하세요.</div>
           </div>
           <button class="secondary-button" id="runOcrButton" type="button">로컬 OCR 실행</button>
         </div>
@@ -4657,43 +4657,202 @@
         addDebugLog("Tesseract load done");
       }
 
-      const config = {
+      const baseOptions = {
+        logger: message => {
+          if (message.status === "recognizing text" && typeof message.progress === "number") {
+            setStatus(`로컬 OCR 인식 중... ${Math.round(message.progress * 100)}%`);
+          }
+        }
+      };
+
+      const digitConfig = {
+        tessedit_char_whitelist: "0123456789",
+        preserve_interword_spaces: "1",
+        tessedit_pageseg_mode: "7",
+      };
+
+      const unitConfig = {
         tessedit_char_whitelist: "0123456789억만 ",
         preserve_interword_spaces: "1",
         tessedit_pageseg_mode: "7",
       };
 
       addDebugLog("Tesseract recognize start", {
-        config,
+        digitConfig,
+        unitConfig,
         blobSize: processedImage && processedImage.size,
         blobType: processedImage && processedImage.type,
       });
 
-      const result = await Tesseract.recognize(
-        processedImage,
-        "kor+eng",
-        {
-          logger: message => {
-            if (message.status === "recognizing text" && typeof message.progress === "number") {
-              setStatus(`로컬 OCR 인식 중... ${Math.round(message.progress * 100)}%`);
-            }
-          }
-        },
-        config
-      );
+      const digitResult = await Tesseract.recognize(processedImage, "eng", baseOptions, digitConfig);
+      const digitText = digitResult?.data?.text || "";
 
-      const text = result?.data?.text || "";
+      let unitText = "";
+      try {
+        const unitResult = await Tesseract.recognize(processedImage, "kor+eng", baseOptions, unitConfig);
+        unitText = unitResult?.data?.text || "";
+      } catch (error) {
+        addDebugLog("Tesseract unit pass failed", { message: error.message || String(error) });
+      }
+
+      const mergedText = [digitText, unitText].filter(Boolean).join("\n");
 
       addDebugLog("Tesseract recognize done", {
-        text,
-        confidence: result?.data?.confidence,
+        digitText,
+        unitText,
+        mergedText,
+        digitConfidence: digitResult?.data?.confidence,
       });
 
-      return text;
+      return mergedText;
     }
 
     async function runExternalOcrSpace(processedImage) {
       return await runTesseractMesoOcr(processedImage);
+    }
+
+    function parseMesoFromDigitStream(rawText) {
+      const digits = String(rawText || "").replace(/\D/g, "");
+
+      if (!digits) return null;
+
+      if (digits.length >= 9) {
+        const eok = Number(digits.slice(0, -8));
+        const man = Number(digits.slice(-8, -4));
+        const rest = Number(digits.slice(-4));
+
+        if (Number.isFinite(eok) && eok >= 0 && man >= 0 && man <= 9999 && rest >= 0 && rest <= 9999) {
+          return {
+            eok,
+            man,
+            rest,
+            meso: eok * 100000000 + man * 10000 + rest,
+            confidenceText: `${eok}억 ${man}만 ${rest}`,
+            rawTokens: digits,
+            source: "digit-stream",
+          };
+        }
+      }
+
+      return null;
+    }
+
+    function parseMapleMesoWithDigitStreamFallback(rawText) {
+      const unitParsed = parseMapleMesoFromOcrText(rawText);
+      const streamParsed = parseMesoFromDigitStream(rawText);
+
+      if (!streamParsed) return unitParsed;
+      if (!unitParsed || !unitParsed.meso) return streamParsed;
+
+      const unitDigits = String(unitParsed.rawTokens || unitParsed.confidenceText || "").replace(/\D/g, "");
+      const streamDigits = String(streamParsed.rawTokens || "").replace(/\D/g, "");
+
+      if (streamDigits.length >= unitDigits.length + 1) {
+        return {
+          ...streamParsed,
+          unitParsed,
+          source: "digit-stream-preferred",
+        };
+      }
+
+      return unitParsed;
+    }
+
+    function getTemplateMatchPartsFromCurrentImageCandidate(candidate) {
+      if (!candidate || !candidate.digits || !candidate.matches || !candidate.matches.length) return null;
+      if (candidate.digits.includes("?")) return null;
+
+      const minScore = candidate.minScore || 0;
+      if (minScore < 0.80) return null;
+
+      const parts = splitMatchedMesoDigits(candidate.digits);
+      const eok = Number(parts.eok || 0);
+      const man = Number(parts.man || 0);
+      const rest = Number(parts.rest || 0);
+
+      if (!parts.eok) return null;
+      if (!Number.isFinite(eok) || !Number.isFinite(man) || !Number.isFinite(rest)) return null;
+      if (man < 0 || man > 9999 || rest < 0 || rest > 9999) return null;
+
+      return {
+        eok,
+        man,
+        rest,
+        meso: eok * 100000000 + man * 10000 + rest,
+        confidenceText: `${eok}억 ${man}만 ${rest}`,
+        rawTokens: candidate.digits,
+        source: "template-match",
+        minScore,
+      };
+    }
+
+    async function getDigitTemplateMatchCandidateFromCurrentImage() {
+      const templates = loadDigitTemplatesFromCache();
+      const trained = getTemplateTrainedDigits();
+
+      if (trained.length < 5) {
+        return {
+          ok: false,
+          reason: "trained digit count is too low",
+          trained,
+        };
+      }
+
+      const canvas = await createMesoTemplateCanvas(currentOcrImage);
+      const components = segmentDigitComponentsFromCanvas(canvas);
+
+      if (!components.length) {
+        return {
+          ok: false,
+          reason: "no digit components",
+          trained,
+        };
+      }
+
+      const matches = components.map(component => {
+        const sample = normalizeDigitComponent(canvas, component, templates.normalizedWidth, templates.normalizedHeight);
+        return matchDigitSample(sample, templates);
+      });
+
+      const digits = matches.map(match => match.digit).join("");
+      const minScore = matches.length ? Math.min(...matches.map(match => match.score)) : 0;
+      const avgScore = matches.length ? matches.reduce((sum, match) => sum + match.score, 0) / matches.length : 0;
+      const parts = splitMatchedMesoDigits(digits);
+
+      return {
+        ok: Boolean(digits) && !digits.includes("?"),
+        trained,
+        components,
+        matches,
+        digits,
+        minScore,
+        avgScore,
+        parts,
+      };
+    }
+
+    function applyParsedMesoToActualInputs(parsed, labelPrefix = "OCR 후보") {
+      if (!parsed || !parsed.meso) return false;
+
+      setActualMesoRawDisplayFromMeso(parsed.meso);
+
+      if (parsed.eok !== undefined && parsed.man !== undefined && parsed.rest !== undefined) {
+        setUnitInputsFromParts(parsed);
+      } else {
+        setUnitInputsFromMeso(parsed.meso);
+      }
+
+      updateReconcilePreview();
+
+      if ($("ocrCandidateHint")) {
+        const rawTokenText = parsed.rawTokens ? ` · 원문 후보: ${parsed.rawTokens}` : "";
+        const sourceText = parsed.source ? ` · 방식: ${parsed.source}` : "";
+        const scoreText = parsed.minScore ? ` · 신뢰도: ${Math.round(parsed.minScore * 100)}%` : "";
+        $("ocrCandidateHint").textContent =
+          `${labelPrefix}: ${parsed.confidenceText}${rawTokenText}${sourceText}${scoreText} · 실제 화면 값과 반드시 비교 후 확정하세요.`;
+      }
+
+      return true;
     }
 
     async function runOcr() {
@@ -4702,8 +4861,37 @@
         return;
       }
 
-      setStatus("로컬 Tesseract OCR 준비 중...");
-      addDebugLog("Local OCR button clicked");
+      setStatus("메소 숫자 템플릿 매칭을 먼저 시도합니다...");
+      addDebugLog("Meso recognition started: template first");
+
+      try {
+        const templateCandidate = await getDigitTemplateMatchCandidateFromCurrentImage();
+        addDebugLog("Template match candidate from OCR button", {
+          ok: templateCandidate.ok,
+          trained: templateCandidate.trained,
+          componentCount: templateCandidate.components ? templateCandidate.components.length : 0,
+          digits: templateCandidate.digits,
+          minScore: templateCandidate.minScore,
+          avgScore: templateCandidate.avgScore,
+          parts: templateCandidate.parts,
+        });
+
+        const parsedTemplate = getTemplateMatchPartsFromCurrentImageCandidate(templateCandidate);
+
+        if (parsedTemplate && applyParsedMesoToActualInputs(parsedTemplate, "템플릿 매칭 후보")) {
+          currentOcrRawText = `TEMPLATE:${parsedTemplate.rawTokens}`;
+          if ($("ocrRawText")) $("ocrRawText").textContent = `템플릿 매칭 숫자열: ${parsedTemplate.rawTokens}`;
+          setStatus(`템플릿 매칭 후보를 입력칸에 반영했습니다: ${parsedTemplate.confidenceText}`, "ok");
+          return;
+        }
+      } catch (templateError) {
+        addDebugLog("Template match failed and falls back to Tesseract", {
+          message: templateError.message || String(templateError),
+          stack: templateError.stack || "",
+        });
+      }
+
+      setStatus("템플릿 매칭이 부족해 로컬 Tesseract OCR을 보조로 실행합니다...");
 
       try {
         const processedImage = await preprocessImageForMesoOcrLocal(currentOcrImage);
@@ -4713,29 +4901,14 @@
         });
 
         currentOcrRawText = await runTesseractMesoOcr(processedImage);
-        const parsed = parseMapleMesoFromOcrText(currentOcrRawText);
+        const parsed = parseMapleMesoWithDigitStreamFallback(currentOcrRawText);
 
         addDebugLog("Local OCR parsed candidate", parsed);
 
         if ($("ocrRawText")) $("ocrRawText").textContent = currentOcrRawText || "OCR 결과가 없습니다.";
 
-        if (parsed.meso) {
-          setActualMesoRawDisplayFromMeso(parsed.meso);
-
-          if (parsed.eok !== undefined && parsed.man !== undefined && parsed.rest !== undefined) {
-            setUnitInputsFromParts(parsed);
-          } else {
-            setUnitInputsFromMeso(parsed.meso);
-          }
-
-          updateReconcilePreview();
-
-          if ($("ocrCandidateHint")) {
-            const rawTokenText = parsed.rawTokens ? ` · 원문 후보: ${parsed.rawTokens}` : "";
-            $("ocrCandidateHint").textContent =
-              `로컬 OCR 후보: ${parsed.confidenceText}${rawTokenText} · 실제 화면 값과 반드시 비교 후 확정하세요.`;
-          }
-
+        if (parsed && parsed.meso) {
+          applyParsedMesoToActualInputs(parsed, parsed.source && parsed.source.includes("digit-stream") ? "숫자열 보정 후보" : "로컬 OCR 후보");
           setStatus(`로컬 OCR 후보를 입력칸에 반영했습니다: ${parsed.confidenceText}`, "ok");
         } else {
           setStatus("로컬 OCR에서 메소 후보를 찾지 못했습니다. 억/만/원 칸에 직접 입력해주세요.", "error");
@@ -4751,86 +4924,6 @@
         });
         setStatus(`로컬 OCR 실패: ${error.message || error}. 억/만/원 칸에 직접 입력해주세요.`, "error");
       }
-    }
-
-    function getLedgerBalanceMeso() {
-      const totalEok = records.reduce((sum, record) => {
-        const amount = Number(record.amount || 0);
-        return record.type === "income" ? sum + amount : sum - amount;
-      }, 0);
-
-      return eokToMeso(totalEok);
-    }
-
-    function getOcrRecordType() {
-      return $("ocrRecordTypeSelect")?.value || "auto";
-    }
-
-    function renderOcrCategoryOptions() {
-      const select = $("ocrCategorySelect");
-      if (!select) return;
-
-      const actualMeso = getActualMesoInputValue();
-      const ledgerMeso = getLedgerBalanceMeso();
-      const diff = actualMeso - ledgerMeso;
-
-      let type = getOcrRecordType();
-      if (type === "auto") type = diff >= 0 ? "income" : "expense";
-
-      const list = categories[type] || [];
-      const previous = select.value;
-      select.innerHTML = "";
-
-      list.forEach(name => {
-        const option = document.createElement("option");
-        option.value = name;
-        option.textContent = name;
-        select.appendChild(option);
-      });
-
-      const preferred = list.includes("잔액 보정") ? "잔액 보정" : (list[0] || "");
-      select.value = list.includes(previous) ? previous : preferred;
-    }
-
-    function setActualMesoRawDisplayFromParts() {
-      const actualMeso = getActualMesoInputValue();
-      setActualMesoRawDisplayFromMeso(actualMeso);
-    }
-
-    function updateReconcilePreview() {
-      const actualMeso = getActualMesoInputValue();
-      const ledgerMeso = getLedgerBalanceMeso();
-      const diff = actualMeso - ledgerMeso;
-
-      const actualEl = $("actualMesoPretty");
-      const ledgerEl = $("ledgerBalancePretty");
-      const diffEl = $("reconcileDiffPretty");
-      const directionEl = $("reconcileDirection");
-
-      if (actualEl) actualEl.textContent = actualMeso ? formatMesoKorean(actualMeso) : "0메소";
-      if (ledgerEl) ledgerEl.textContent = formatMesoKorean(ledgerMeso);
-
-      if (diffEl) {
-        diffEl.textContent = `${diff >= 0 ? "+" : ""}${formatMesoKorean(diff)}`;
-        diffEl.className = `value ${diff >= 0 ? "orange" : "blue"}`;
-      }
-
-      if (directionEl) {
-        const selectedType = getOcrRecordType();
-
-        if (selectedType === "income") {
-          directionEl.textContent = "수입 기록";
-          directionEl.className = "value orange";
-        } else if (selectedType === "expense") {
-          directionEl.textContent = "지출 기록";
-          directionEl.className = "value blue";
-        } else {
-          directionEl.textContent = diff > 0 ? "수입 보정" : diff < 0 ? "지출 보정" : "보정 없음";
-          directionEl.className = `value ${diff > 0 ? "orange" : diff < 0 ? "blue" : ""}`;
-        }
-      }
-
-      renderOcrCategoryOptions();
     }
 
     function addReconcileRecord() {
