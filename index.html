@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v68</title>
+  <title>메이플스토리 장부 앱 v69</title>
   <style>
     :root {
       --bg: #020617;
@@ -1887,7 +1887,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v68</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v69</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -1941,7 +1941,7 @@
           <div class="field">
             <label>OCR 인식/직접 입력 메소</label>
             <input id="actualMesoRawInput" inputmode="numeric" placeholder="예: 5473210000 또는 54억7321만" />
-            <div class="hint">숫자 템플릿을 우선 사용하고, 부족하면 숫자 전용/단위 포함 Tesseract 결과를 서로 검증합니다. 서로 다르면 자동 반영하지 않습니다.</div>
+            <div class="hint">숫자 템플릿을 우선 사용하고, 부족하면 숫자 전용/단위 포함 Tesseract 결과를 서로 검증합니다. 일부 차이는 구간별 비교 후 숫자 전용 결과를 우선합니다.</div>
           </div>
           <button class="secondary-button" id="runOcrButton" type="button">로컬 OCR 실행</button>
         </div>
@@ -4760,6 +4760,12 @@
       }
 
       return null;
+    }
+
+    function parseMesoFromDigitStream(rawText) {
+      // v69: v68 OCR 보조 경로에서 호출되지만 누락됐던 호환 파서.
+      // 기존 숫자 전용 Tesseract 파서를 그대로 재사용해 OCR 판정 규칙을 보존한다.
+      return parseDigitOnlyTesseractText(rawText);
     }
 
     function areMesoCandidatesEqual(a, b) {
