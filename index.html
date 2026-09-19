@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>메이플스토리 장부 앱 v67</title>
+  <title>메이플스토리 장부 앱 v68</title>
   <style>
     :root {
       --bg: #020617;
@@ -1887,7 +1887,7 @@
   <div class="app">
     <header>
       <div>
-        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v67</div>
+        <div class="eyebrow">MapleStory Meso Ledger · Google Sheets v68</div>
         <h1>메이플스토리 장부</h1>
         <div class="desc">구글 스프레드시트에 저장되어 핸드폰, 태블릿, PC에서 같은 데이터를 불러옵니다.</div>
       </div>
@@ -4677,35 +4677,36 @@
         tessedit_pageseg_mode: "7",
       };
 
-      addDebugLog("Tesseract recognize start", {
-        digitConfig,
-        unitConfig,
-        blobSize: processedImage && processedImage.size,
-        blobType: processedImage && processedImage.type,
-      });
-
       const digitResult = await Tesseract.recognize(processedImage, "eng", baseOptions, digitConfig);
       const digitText = digitResult?.data?.text || "";
+      const digitConfidence = Number(digitResult?.data?.confidence || 0);
 
       let unitText = "";
       let unitConfidence = 0;
+
       try {
         const unitResult = await Tesseract.recognize(processedImage, "kor+eng", baseOptions, unitConfig);
         unitText = unitResult?.data?.text || "";
         unitConfidence = Number(unitResult?.data?.confidence || 0);
       } catch (error) {
-        addDebugLog("Tesseract unit pass failed", { message: error.message || String(error) });
+        addDebugLog("Tesseract unit pass failed", {
+          message: error.message || String(error),
+        });
       }
 
-      const recognition = {
+      addDebugLog("Tesseract recognize done", {
         digitText,
         unitText,
-        digitConfidence: Number(digitResult?.data?.confidence || 0),
+        digitConfidence,
+        unitConfidence,
+      });
+
+      return {
+        digitText,
+        unitText,
+        digitConfidence,
         unitConfidence,
       };
-
-      addDebugLog("Tesseract recognize done", recognition);
-      return recognition;
     }
 
     async function runExternalOcrSpace(processedImage) {
@@ -4945,6 +4946,142 @@
       return true;
     }
 
+    function normalizeMesoPartsCandidate(candidate) {
+      if (!candidate) return null;
+
+      const eok = Number(candidate.eok);
+      const man = Number(candidate.man);
+      const rest = Number(candidate.rest);
+
+      if (!Number.isFinite(eok) || !Number.isFinite(man) || !Number.isFinite(rest)) return null;
+      if (eok < 0 || man < 0 || man > 9999 || rest < 0 || rest > 9999) return null;
+
+      return {
+        ...candidate,
+        eok,
+        man,
+        rest,
+        meso: eok * 100000000 + man * 10000 + rest,
+        confidenceText: `${eok}억 ${man}만 ${rest}`,
+      };
+    }
+
+    function countEqualMesoParts(a, b) {
+      if (!a || !b) return 0;
+      let count = 0;
+      if (a.eok === b.eok) count += 1;
+      if (a.man === b.man) count += 1;
+      if (a.rest === b.rest) count += 1;
+      return count;
+    }
+
+    function isSingleTrailingDigitDrop(shortValue, longValue) {
+      const shortText = String(shortValue ?? "");
+      const longText = String(longValue ?? "");
+
+      if (!shortText || !longText) return false;
+      if (longText.length !== shortText.length + 1) return false;
+
+      return longText.startsWith(shortText);
+    }
+
+    function resolveOcrCandidatesPreferDigitPass(digitCandidate, unitCandidate, digitConfidence = 0, unitConfidence = 0) {
+      const digit = normalizeMesoPartsCandidate(digitCandidate);
+      const unit = normalizeMesoPartsCandidate(unitCandidate);
+
+      if (digit && !unit) {
+        return {
+          candidate: { ...digit, source: "digit-pass-only" },
+          autoApply: true,
+          warning: "",
+          reason: "숫자 전용 OCR만 유효",
+        };
+      }
+
+      if (!digit && unit) {
+        return {
+          candidate: { ...unit, source: "unit-pass-only" },
+          autoApply: true,
+          warning: "",
+          reason: "단위 포함 OCR만 유효",
+        };
+      }
+
+      if (!digit && !unit) {
+        return {
+          candidate: null,
+          autoApply: false,
+          warning: "두 OCR 모두 유효한 메소값을 만들지 못했습니다.",
+          reason: "no-valid-candidate",
+        };
+      }
+
+      if (digit.eok === unit.eok && digit.man === unit.man && digit.rest === unit.rest) {
+        return {
+          candidate: { ...digit, source: "digit+unit-agree" },
+          autoApply: true,
+          warning: "",
+          reason: "두 OCR 완전 일치",
+        };
+      }
+
+      const sameParts = countEqualMesoParts(digit, unit);
+
+      // 핵심 완화 규칙:
+      // 만/원이 같고 억만 다른 경우, 숫자 전용 pass를 우선한다.
+      // 특히 1080 vs 108처럼 한 자리 누락 패턴이면 긴 값을 우선한다.
+      if (digit.man === unit.man && digit.rest === unit.rest) {
+        let chosen = digit;
+        let reason = "만/원 일치 + 숫자 전용 OCR 우선";
+
+        if (isSingleTrailingDigitDrop(unit.eok, digit.eok)) {
+          chosen = digit;
+          reason = "억 마지막 자리 누락 패턴 감지 + 숫자 전용 OCR 우선";
+        } else if (isSingleTrailingDigitDrop(digit.eok, unit.eok) && unitConfidence > digitConfidence + 10) {
+          chosen = unit;
+          reason = "억 마지막 자리 누락 패턴이 숫자 전용 OCR 쪽에서 감지되고 단위 OCR 신뢰도가 크게 높음";
+        }
+
+        return {
+          candidate: { ...chosen, source: "resolved-by-parts" },
+          autoApply: true,
+          warning: chosen === digit
+            ? "보조 OCR과 억 단위가 달랐지만 만/원이 일치해 숫자 전용 결과를 사용했습니다."
+            : "숫자 전용 OCR과 억 단위가 달랐지만 보조 OCR 신뢰도가 더 높아 단위 포함 결과를 사용했습니다.",
+          reason,
+        };
+      }
+
+      // 3구간 중 2구간이 같으면 숫자 전용을 기본 우선.
+      if (sameParts >= 2) {
+        const chosen = digitConfidence + 8 >= unitConfidence ? digit : unit;
+        return {
+          candidate: { ...chosen, source: "resolved-2-of-3-parts" },
+          autoApply: true,
+          warning: "두 OCR 중 한 구간만 달라 신뢰도가 더 높은 결과를 사용했습니다.",
+          reason: `3구간 중 ${sameParts}구간 일치`,
+        };
+      }
+
+      // 숫자 전용 OCR이 구조적으로 유효하고 confidence가 나쁘지 않으면 자동 반영.
+      if (digit && digitConfidence >= 55 && digitConfidence + 5 >= unitConfidence) {
+        return {
+          candidate: { ...digit, source: "digit-pass-preferred" },
+          autoApply: true,
+          warning: "보조 OCR과 일부 차이가 있지만 숫자 전용 OCR 결과를 우선 사용했습니다.",
+          reason: "숫자 전용 OCR confidence 우세",
+        };
+      }
+
+      // 이 경우만 정말 충돌로 간주
+      return {
+        candidate: digit || unit,
+        autoApply: false,
+        warning: "OCR 두 결과가 크게 달라 자동 반영하지 않았습니다. 실제 화면 값을 확인해주세요.",
+        reason: "large-conflict",
+      };
+    }
+
     async function runOcr() {
       if (!currentOcrImage) {
         setStatus("OCR을 실행할 이미지를 먼저 붙여넣거나 선택하세요.", "error");
@@ -4956,19 +5093,19 @@
 
       try {
         const templateCandidate = await getDigitTemplateMatchCandidateFromCurrentImage();
-        addDebugLog("Template match candidate from OCR button", {
-          ok: templateCandidate.ok,
-          trained: templateCandidate.trained,
-          componentCount: templateCandidate.components ? templateCandidate.components.length : 0,
-          digits: templateCandidate.digits,
-          minScore: templateCandidate.minScore,
-          avgScore: templateCandidate.avgScore,
-          parts: templateCandidate.parts,
-        });
-
         const parsedTemplate = getTemplateMatchPartsFromCurrentImageCandidate(templateCandidate);
 
-        if (parsedTemplate && applyParsedMesoToActualInputs(parsedTemplate, "템플릿 매칭 후보")) {
+        addDebugLog("Template match candidate from OCR button", {
+          ok: templateCandidate?.ok,
+          trained: templateCandidate?.trained,
+          digits: templateCandidate?.digits,
+          minScore: templateCandidate?.minScore,
+          avgScore: templateCandidate?.avgScore,
+          parts: templateCandidate?.parts,
+        });
+
+        if (parsedTemplate && parsedTemplate.minScore >= 0.84) {
+          applyParsedMesoToActualInputs(parsedTemplate, "템플릿 매칭 후보");
           currentOcrRawText = `TEMPLATE:${parsedTemplate.rawTokens}`;
           if ($("ocrRawText")) $("ocrRawText").textContent = `템플릿 매칭 숫자열: ${parsedTemplate.rawTokens}`;
           setStatus(`템플릿 매칭 후보를 입력칸에 반영했습니다: ${parsedTemplate.confidenceText}`, "ok");
@@ -4981,51 +5118,77 @@
         });
       }
 
-      setStatus("템플릿 매칭이 부족해 로컬 Tesseract OCR을 보조로 실행합니다...");
+      setStatus("템플릿 매칭이 부족해 로컬 OCR을 보조로 실행합니다...");
 
       try {
         const processedImage = await preprocessImageForMesoOcrLocal(currentOcrImage);
-        addDebugLog("Local OCR image preprocessed", {
-          blobSize: processedImage && processedImage.size,
-          type: processedImage && processedImage.type,
+        const tesseract = await runTesseractMesoOcr(processedImage);
+
+        const digitCandidate =
+          parseMesoFromDigitStream(tesseract.digitText) ||
+          parseMapleMesoFromOcrText(tesseract.digitText);
+
+        const unitCandidate =
+          parseMapleMesoFromOcrText(tesseract.unitText) ||
+          parseMesoFromDigitStream(tesseract.unitText);
+
+        const resolved = resolveOcrCandidatesPreferDigitPass(
+          digitCandidate,
+          unitCandidate,
+          tesseract.digitConfidence,
+          tesseract.unitConfidence
+        );
+
+        currentOcrRawText = [
+          `숫자전용: ${tesseract.digitText || "(없음)"}`,
+          `단위포함: ${tesseract.unitText || "(없음)"}`,
+        ].join("\n");
+
+        addDebugLog("OCR candidate resolution", {
+          digitText: tesseract.digitText,
+          unitText: tesseract.unitText,
+          digitConfidence: tesseract.digitConfidence,
+          unitConfidence: tesseract.unitConfidence,
+          digitCandidate,
+          unitCandidate,
+          resolved,
         });
 
-        const recognition = await runTesseractMesoOcr(processedImage);
-        const decision = chooseTesseractMesoCandidate(recognition);
-        currentOcrRawText = formatStructuredRecognitionRaw(recognition, decision);
+        if ($("ocrRawText")) $("ocrRawText").textContent = currentOcrRawText;
 
-        addDebugLog("Structured Tesseract decision", {
-          recognition,
-          decision,
-        });
+        if (resolved.candidate && resolved.autoApply) {
+          applyParsedMesoToActualInputs(resolved.candidate, "OCR 후보");
 
-        if ($("ocrRawText")) $("ocrRawText").textContent = currentOcrRawText || "OCR 결과가 없습니다.";
-
-        if (decision.ok && decision.candidate) {
-          const parsed = decision.candidate;
-          applyParsedMesoToActualInputs(parsed, parsed.source === "tesseract-consensus" ? "OCR 일치 후보" : "OCR 자리수 후보");
-          setStatus(`OCR 후보를 입력칸에 반영했습니다: ${parsed.confidenceText}`, "ok");
-          return;
-        }
-
-        if (decision.conflict) {
-          if ($("ocrCandidateHint")) {
-            const digitText = decision.digitCandidate ? decision.digitCandidate.confidenceText : "없음";
-            const unitText = decision.unitCandidate ? decision.unitCandidate.confidenceText : "없음";
-            $("ocrCandidateHint").textContent = `OCR 후보 충돌 · 숫자 전용: ${digitText} · 단위 포함: ${unitText} · 자동 반영하지 않았습니다.`;
+          if ($("ocrCandidateHint") && resolved.warning) {
+            $("ocrCandidateHint").textContent += ` · ${resolved.warning}`;
           }
-          setStatus("OCR 두 결과가 서로 달라 자동 반영하지 않았습니다. 실제 화면 값을 확인해주세요.", "error");
+
+          setStatus(
+            resolved.warning
+              ? `OCR 후보를 반영했습니다. ${resolved.warning}`
+              : `OCR 후보를 입력칸에 반영했습니다: ${resolved.candidate.confidenceText}`,
+            "ok"
+          );
           return;
         }
 
-        setStatus("로컬 OCR에서 메소 후보를 찾지 못했습니다. 억/만/원 칸에 직접 입력해주세요.", "error");
+        if (resolved.candidate && !resolved.autoApply) {
+          if ($("ocrCandidateHint")) {
+            $("ocrCandidateHint").textContent =
+              `${resolved.warning} 숫자전용=${digitCandidate?.confidenceText || "실패"} / 단위포함=${unitCandidate?.confidenceText || "실패"}`;
+          }
+          setStatus(resolved.warning, "error");
+          return;
+        }
+
+        setStatus("OCR에서 메소 후보를 만들지 못했습니다. 억/만/원 칸에 직접 입력해주세요.", "error");
       } catch (error) {
         console.error(error);
         addDebugLog("Local OCR failed", {
           message: error.message || String(error),
           stack: error.stack || "",
         });
-        setStatus(`로컬 OCR 실패: ${error.message || error}. 억/만/원 칸에 직접 입력해주세요.`, "error");
+        setStatus(`로컬 OCR 실패: ${error.message || error}`, "error");
       }
     }
 
